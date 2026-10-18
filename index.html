@@ -1,4 +1,836 @@
-// 全域變數
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>義大醫院 病房管理暨護理監控指標整合系統</title>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root {
+    --primary: #006666;
+    --primary-light: #e6f2f2;
+    --primary-dark: #004d4d;
+    --accent: #d97706;
+    --bg: #f8fafc;
+    --card: #ffffff;
+    --text: #1e293b;
+    --text-muted: #64748b;
+    --border: #e2e8f0;
+    --danger: #ef4444;
+    --success: #10b981;
+    --warning: #f59e0b;
+    --info: #0284c7;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans TC", sans-serif; }
+  body { background-color: var(--bg); color: var(--text); min-height: 100vh; display: flex; flex-direction: column; }
+  
+  /* 權限控制樣式 */
+  .admin-only { display: block; }
+  body.is-user .admin-only { display: none !important; }
+  body.is-user .admin-editable {
+    background-color: #f1f5f9 !important;
+    cursor: not-allowed !important;
+    pointer-events: none;
+    border-style: solid !important;
+  }
+  
+  header { background: linear-gradient(135deg, var(--primary-dark), var(--primary)); color: white; padding: 0.85rem 2rem; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 2px 8px rgba(0,0,0,0.15); flex-wrap: wrap; gap: 10px; }
+  .logo-group { display: flex; align-items: center; gap: 12px; }
+  .logo-title { font-size: 1.22rem; font-weight: 700; letter-spacing: 0.5px; }
+  .logo-subtitle { font-size: 0.82rem; opacity: 0.88; }
+  .user-badge { display: flex; align-items: center; gap: 10px; background: rgba(255,255,255,0.15); padding: 5px 14px; border-radius: 20px; font-size: 0.88rem; }
+  .unit-switch-select { background: white; color: var(--primary-dark); border: none; border-radius: 12px; padding: 3px 8px; font-size: 0.85rem; font-weight: 700; outline: none; cursor: pointer; }
+  .btn-logout { background: #fff; color: var(--primary-dark); border: none; padding: 4px 10px; border-radius: 12px; font-weight: 600; cursor: pointer; transition: 0.2s; }
+  .btn-logout:hover { background: #fee2e2; color: var(--danger); }
+
+  #login-section { display: flex; justify-content: center; align-items: center; flex: 1; padding: 2rem; }
+  .login-card { background: white; padding: 2.5rem; border-radius: 16px; box-shadow: 0 10px 25px rgba(0,0,0,0.08); width: 100%; max-width: 480px; border-top: 5px solid var(--primary); }
+  .login-card h2 { color: var(--primary); margin-bottom: 0.5rem; text-align: center; }
+  .login-card p { color: var(--text-muted); font-size: 0.9rem; margin-bottom: 2rem; text-align: center; }
+  .form-group { margin-bottom: 1.25rem; }
+  .form-group label { display: block; font-size: 0.88rem; font-weight: 600; margin-bottom: 6px; }
+  .form-control { width: 100%; padding: 9px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 0.92rem; outline: none; }
+  .form-control:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(0,102,102,0.15); }
+  .btn-primary { width: 100%; background: var(--primary); color: white; padding: 12px; border: none; border-radius: 8px; font-size: 1rem; font-weight: 600; cursor: pointer; transition: 0.2s; }
+  .btn-primary:hover { background: var(--primary-dark); }
+
+  main { flex: 1; padding: 1.5rem 2rem; max-width: 1440px; margin: 0 auto; width: 100%; display: none; }
+  .tab-nav { display: flex; gap: 8px; border-bottom: 2px solid var(--border); margin-bottom: 1.5rem; }
+  .tab-btn { padding: 10px 20px; font-size: 0.95rem; font-weight: 600; color: var(--text-muted); background: none; border: none; border-bottom: 3px solid transparent; cursor: pointer; }
+  .tab-btn.active { color: var(--primary); border-bottom-color: var(--primary); }
+
+  .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
+  .stat-card { background: white; padding: 1.25rem; border-radius: 12px; box-shadow: 0 2px 6px rgba(0,0,0,0.04); border-left: 4px solid var(--primary); }
+  .stat-title { font-size: 0.85rem; color: var(--text-muted); margin-bottom: 4px; }
+  .stat-value { font-size: 1.8rem; font-weight: 700; color: var(--primary-dark); }
+  .stat-sub { font-size: 0.75rem; color: var(--text-muted); margin-top: 4px; }
+
+  .panel { background: white; border-radius: 12px; padding: 1.5rem; box-shadow: 0 2px 6px rgba(0,0,0,0.04); margin-bottom: 1.5rem; border: 1px solid var(--border); }
+  .panel-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.2rem; flex-wrap: wrap; gap: 10px; }
+  .panel-title { font-size: 1.15rem; font-weight: 700; color: var(--primary); display: flex; align-items: center; gap: 8px; }
+
+  .drop-zone { border: 2px dashed #94a3b8; border-radius: 10px; padding: 1.8rem; text-align: center; background: #f8fafc; cursor: pointer; transition: 0.2s; }
+  .drop-zone:hover { border-color: var(--primary); background: var(--primary-light); }
+
+  .filter-bar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-bottom: 1.2rem; }
+  .btn-group { display: flex; gap: 8px; flex-wrap: wrap; }
+  .btn-action { display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 6px; font-size: 0.88rem; font-weight: 600; cursor: pointer; border: 1px solid var(--border); background: white; color: var(--text); }
+  .btn-action.primary { background: var(--primary); color: white; border-color: var(--primary); }
+  .btn-action.primary:hover { background: var(--primary-dark); }
+
+  .upload-source-tabs { display: flex; gap: 10px; margin-bottom: 1rem; flex-wrap: wrap; }
+  .source-tab { padding: 6px 12px; border-radius: 6px; font-size: 0.82rem; font-weight: 600; cursor: pointer; border: 1px solid var(--border); background: #f1f5f9; color: var(--text); }
+  .source-tab.active { background: var(--primary); color: white; border-color: var(--primary); }
+
+  .patient-accordion-group { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: white; }
+  .patient-card { border-bottom: 1px solid var(--border); }
+  .patient-card:last-child { border-bottom: none; }
+  
+  .patient-summary-row { padding: 12px 16px; display: flex; align-items: center; gap: 14px; cursor: pointer; user-select: none; transition: background 0.15s; }
+  .patient-summary-row:hover { background-color: #f1f5f9; }
+  .toggle-status-badge { font-size: 0.75rem; font-weight: 700; padding: 3px 8px; border-radius: 4px; background: #e2e8f0; color: #475569; min-width: 32px; text-align: center; }
+  .patient-card.open .toggle-status-badge { background: var(--primary); color: white; }
+
+  .bed-badge { background: #006666; color: white; padding: 4px 10px; border-radius: 6px; font-weight: 700; font-size: 0.9rem; min-width: 60px; text-align: center; }
+  .pt-main-info { font-weight: 700; font-size: 0.95rem; min-width: 140px; }
+  .pt-chart { font-size: 0.85rem; color: var(--text-muted); min-width: 80px; }
+  .pt-dept { min-width: 120px; font-size: 0.88rem; }
+  .pt-diag { flex: 1; font-size: 0.88rem; color: #475569; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pt-los { font-weight: 700; color: var(--accent); min-width: 70px; text-align: right; }
+  .pt-badges { display: flex; gap: 6px; flex-wrap: wrap; }
+
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 0.72rem; font-weight: 600; }
+  .badge-danger { background: #fee2e2; color: #b91c1c; }
+  .badge-warning { background: #fef3c7; color: #b45309; }
+  .badge-info { background: #e0f2fe; color: #0369a1; }
+  .badge-purple { background: #f3e8ff; color: #7e22ce; }
+  .badge-auto { background: #dcfce7; color: #15803d; border: 1px solid #86efac; }
+  .badge-manual { background: #fef3c7; color: #b45309; border: 1px solid #fde68a; }
+
+  .patient-detail-body { display: none; padding: 16px 20px; background: #f8fafc; border-top: 1px dashed var(--border); }
+  .patient-card.open .patient-detail-body { display: block; }
+
+  .detail-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; }
+  .detail-section { background: white; padding: 12px 16px; border-radius: 8px; border: 1px solid var(--border); }
+  .detail-section h5 { font-size: 0.85rem; color: var(--primary); margin-bottom: 8px; border-bottom: 1px solid #f1f5f9; padding-bottom: 4px; }
+  .detail-item { font-size: 0.84rem; margin-bottom: 5px; color: #334155; display: flex; justify-content: space-between; }
+  .detail-item span:first-child { color: var(--text-muted); }
+
+  .gauge-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.2rem; margin-bottom: 1.5rem; }
+  .gauge-card { background: white; border-radius: 12px; padding: 1.25rem; border: 1px solid var(--border); box-shadow: 0 2px 6px rgba(0,0,0,0.03); display: flex; align-items: center; gap: 16px; }
+  .gauge-circle-box { width: 84px; height: 84px; position: relative; display: flex; align-items: center; justify-content: center; }
+  .gauge-circle-box svg { transform: rotate(-90deg); width: 84px; height: 84px; }
+  .gauge-circle-bg { fill: none; stroke: #e2e8f0; stroke-width: 7; }
+  .gauge-circle-bar { fill: none; stroke-width: 7; stroke-linecap: round; transition: stroke-dashoffset 0.6s ease; }
+  .gauge-center-text { position: absolute; font-size: 0.95rem; font-weight: 800; }
+  .gauge-info { flex: 1; }
+  .gauge-info h4 { font-size: 0.95rem; color: var(--primary-dark); margin-bottom: 4px; }
+  .gauge-info p { font-size: 0.78rem; color: var(--text-muted); margin-bottom: 6px; line-height: 1.3; }
+  .gauge-status-badge { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 0.75rem; font-weight: 700; }
+
+  .visual-scale-wrapper { width: 175px; display: flex; flex-direction: column; gap: 3px; }
+  .scale-header { display: flex; justify-content: space-between; align-items: center; font-size: 0.75rem; }
+  .scale-target-text { color: var(--text-muted); font-size: 0.72rem; }
+  .scale-track { width: 100%; height: 7px; background: #e2e8f0; border-radius: 4px; overflow: hidden; position: relative; }
+  .scale-bar { height: 100%; border-radius: 4px; transition: width 0.4s ease; }
+  .scale-bar.safe { background: linear-gradient(90deg, #10b981, #059669); }
+  .scale-bar.warn { background: linear-gradient(90deg, #f59e0b, #d97706); }
+  .scale-bar.danger { background: linear-gradient(90deg, #ef4444, #dc2626); }
+  .scale-badge-safe { background: #dcfce7; color: #166534; }
+  .scale-badge-warn { background: #fef3c7; color: #92400e; }
+  .scale-badge-danger { background: #fee2e2; color: #991b1b; }
+
+  .input-threshold { width: 90px; padding: 3px 6px; border: 1px dashed var(--border); border-radius: 4px; font-size: 0.8rem; background: #f8fafc; color: #334155; text-align: center; }
+  .input-threshold:focus { border-color: var(--primary); background: #fff; outline: none; }
+
+  .ind-table { width: 100%; border-collapse: collapse; font-size: 0.88rem; text-align: left; }
+  .ind-table th { background: #f1f5f9; padding: 10px 12px; border-bottom: 2px solid var(--border); color: #334155; position: sticky; top: 0; z-index: 5; white-space: nowrap; }
+  .ind-table td { padding: 9px 12px; border-bottom: 1px solid var(--border); white-space: nowrap; vertical-align: middle; }
+  .ind-table tr:hover td { background: #f8fafc; }
+  .input-num { width: 95px; padding: 5px 8px; border: 1px solid var(--border); border-radius: 6px; font-size: 0.88rem; text-align: right; }
+  .input-num:focus { border-color: var(--primary); outline: none; background: #fff; box-shadow: 0 0 0 2px rgba(0,102,102,0.15); }
+  .input-num.auto-calc { background-color: #f0fdf4; color: #166534; font-weight: 700; border-color: #86efac; }
+
+  .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(15, 23, 42, 0.6); display: none; align-items: center; justify-content: center; z-index: 1000; padding: 1.5rem; backdrop-filter: blur(2px); }
+  .modal-card { background: white; border-radius: 14px; width: 100%; max-width: 680px; max-height: 90vh; overflow-y: auto; box-shadow: 0 20px 40px rgba(0,0,0,0.2); border-top: 5px solid var(--primary); padding: 1.8rem; position: relative; }
+  .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.2rem; border-bottom: 1px solid var(--border); padding-bottom: 0.75rem; }
+  .modal-title { font-size: 1.18rem; font-weight: 700; color: var(--primary-dark); display: flex; align-items: center; gap: 8px; }
+  .modal-close-btn { background: none; border: none; font-size: 1.4rem; color: var(--text-muted); cursor: pointer; line-height: 1; padding: 4px; }
+  .modal-close-btn:hover { color: var(--danger); }
+  .form-row-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 1rem; }
+  .rule-box { background: #f8fafc; border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; margin-bottom: 1rem; }
+  .rule-box h5 { font-size: 0.88rem; color: var(--primary); margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
+  .filter-inline-group { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
+
+  .chart-grid-2col { display: grid; grid-template-columns: repeat(auto-fit, minmax(520px, 1fr)); gap: 1.5rem; margin-bottom: 1.5rem; }
+  .chart-card { background: white; border-radius: 12px; padding: 1.25rem; border: 1px solid var(--border); box-shadow: 0 2px 6px rgba(0,0,0,0.03); display: flex; flex-direction: column; }
+  .chart-card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; border-bottom: 1px solid #f1f5f9; padding-bottom: 0.6rem; }
+  .chart-card-title { font-size: 1rem; font-weight: 700; color: var(--primary-dark); display: flex; align-items: center; gap: 8px; }
+  .chart-card-desc { font-size: 0.78rem; color: var(--text-muted); margin-top: 2px; }
+  .chart-container-box { position: relative; height: 320px; width: 100%; flex: 1; }
+  .btn-chart-dl { background: white; color: var(--primary); border: 1px solid var(--border); border-radius: 6px; padding: 4px 10px; font-size: 0.78rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; transition: 0.15s; }
+  .btn-chart-dl:hover { background: var(--primary-light); border-color: var(--primary); }
+  .chart-controls-bar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; background: #f8fafc; padding: 10px 14px; border-radius: 8px; margin-bottom: 1rem; border: 1px solid var(--border); }
+
+  footer { text-align: center; padding: 1.5rem; color: var(--text-muted); font-size: 0.8rem; border-top: 1px solid var(--border); background: white; margin-top: auto; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo-group">
+    <div style="background: white; color: var(--primary); width: 36px; height: 36px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-weight: 900; font-size: 1.2rem;">義</div>
+    <div>
+      <div class="logo-title">義大醫療財團法人義大醫院</div>
+      <div class="logo-subtitle">護理部 病房管理暨護理監控指標整合系統</div>
+    </div>
+  </div>
+  <div class="user-badge" id="user-badge" style="display: none;">
+    <span>單位：</span>
+    <select id="header-unit-switch" class="unit-switch-select" onchange="switchUnitFromHeader(this.value)">
+      <option value="" disabled selected>-- 切換單位 --</option>
+    </select>
+    <span>身份：<strong id="badge-user">護理長</strong></span>
+    <button class="btn-logout" onclick="logout()">登出</button>
+  </div>
+</header>
+
+<!-- 登入卡片區塊 -->
+<section id="login-section">
+  <div class="login-card">
+    <h2>義大醫院 護理站管理系統</h2>
+    <p>請輸入員編與權限身份進入專區</p>
+    
+    <div class="form-group">
+      <label for="login-username">員工編號 (員編 / 帳號) *</label>
+      <input type="text" id="login-username" class="form-control" placeholder="請輸入員編，例如：80231 或 nurse01" required>
+    </div>
+
+    <div class="form-group">
+      <label for="login-role">登入身份別</label>
+      <select id="login-role" class="form-control">
+        <option value="user" selected>一般人員 (病房護理師 - 唯讀模式)</option>
+        <option value="admin">單位管理者 (護理長/督導 - 完整管理權限)</option>
+      </select>
+    </div>
+
+    <div class="form-group">
+  <label for="select-ward">選擇服務護理站 / 單位 (全院 36 個單位)</label>
+  <select id="select-ward" class="form-control" required>
+    <option value="" disabled selected>-- 請選擇所屬單位 / 護理站 --</option>
+    <optgroup label="一般病房 (18個單位)">
+      <option value="A056">5A病房 (A056)</option>
+      <option value="A055">5B病房 (A055)</option>
+      <option value="A061">6A病房 (A061)</option>
+      <option value="A062">6B病房 (A062)</option>
+      <option value="A071">7A病房 (A071)</option>
+      <option value="A072">7B病房 (A072)</option>
+      <option value="A081">8A病房 (A081)</option>
+      <option value="A082">8B病房 (A082)</option>
+      <option value="A091">9A病房 (A091)</option>
+      <option value="A092">9B病房 (A092)</option>
+      <option value="A101">10A病房 (A101)</option>
+      <option value="A102">10B病房 (A102)</option>
+      <option value="A111">11A病房 (A111)</option>
+      <option value="A112">11B病房 (A112)</option>
+      <option value="A121">12A病房 (A121)</option>
+      <option value="A122">12B病房 (A122)</option>
+      <option value="A131">13A病房 (A131)</option>
+      <option value="A132">13B病房 (A132)</option>
+    </optgroup>
+    <optgroup label="加護病房 (ICU) (10個單位)">
+      <option value="A031">A031 NSICU</option>
+      <option value="A032">A032 SICU-1</option>
+      <option value="A033">A033 PICU</option>
+      <option value="A035">A035 MICU</option>
+      <option value="A036">A036 CCU</option>
+      <option value="A037">A037 RCC</option>
+      <option value="A038">A038 RICU</option>
+      <option value="A039">A039 SICU-2</option>
+      <option value="A040">A040 燒燙傷中心</option>
+      <option value="A041">A041 NICU</option>
+    </optgroup>
+    <optgroup label="特殊單位 (8個單位)">
+      <option value="A034">麻醉恢復室 (A034)</option>
+      <option value="A052">嬰兒重度床 (A052)</option>
+      <option value="A054">產房 (A054)</option>
+      <option value="2142">美容中心 (2142)</option>
+      <option value="C201">日間照病房 (C201)</option>
+      <option value="OR">手術室 (OR)</option>
+      <option value="T005">住院中心 (T005)</option>
+      <option value="ER">急診室 (ER)</option>
+    </optgroup>
+  </select>
+</div>
+
+    <button class="btn-primary" id="btn-login-submit" onclick="handleRoleLogin()">登入單位專區</button>
+    <div id="login-msg" style="margin-top: 10px; font-size: 0.85rem; text-align: center; display: none;"></div>
+  </div>
+</section>
+
+<main id="main-section">
+  <div class="tab-nav">
+    <button class="tab-btn active" onclick="switchTab('patients')">病房月報與收合清單</button>
+    <button class="tab-btn" onclick="switchTab('indicators')">護理監控指標 (自動抓取 & 視覺化量表)</button>
+    <button class="tab-btn" onclick="switchTab('charts')">品質量表圖表分析 (視覺化看板)</button>
+    <button class="tab-btn" onclick="switchTab('yearly')">年度資料統整與查詢</button>
+    <button class="tab-btn admin-only" onclick="switchTab('backup')">數據庫存檔與備份</button>
+  </div>
+
+  <!-- 分頁 1: 病患月報與收合清單 -->
+  <div id="tab-patients" class="tab-content">
+    <div class="panel">
+      <div class="panel-header">
+        <div class="panel-title">📁 上傳報表與數據存檔（支援各類臨床與指標報表）</div>
+        <div class="btn-group">
+          <button class="btn-action primary" onclick="exportCurrentPatients()">匯出當前病人清單 (Excel)</button>
+        </div>
+      </div>
+
+      <div class="upload-source-tabs">
+        <span class="source-tab active" id="tab-src-auto" onclick="setUploadType('auto')">⚡ 自動辨識報表類型</span>
+        <span class="source-tab" id="tab-src-pts" onclick="setUploadType('pts')">📋 每月病患清單 (09.xlsx)</span>
+        <span class="source-tab" id="tab-src-devices" onclick="setUploadType('devices')">💉 管路人日統計表 (管路.XLS)</span>
+        <span class="source-tab" id="tab-src-indwb" onclick="setUploadType('indwb')">📊 2026護理指標工作表</span>
+      </div>
+
+      <div class="drop-zone" onclick="document.getElementById('file-input').click()" ondragover="event.preventDefault()" ondrop="handleDrop(event)">
+        <p style="font-size: 1.05rem; font-weight: 600; color: var(--primary);">點擊選取 或 拖曳義大醫院 Excel 報表至此 (.xlsx / .xls)</p>
+        <p style="color: var(--text-muted); font-size: 0.85rem; margin-top: 4px;">支援自動解析「病患清單 (09.xlsx)」及「管路人日統計 (管路.XLS)」，系統自動判定單位、抓取分子分母並存入單位資料庫</p>
+        <input type="file" id="file-input" style="display: none;" accept=".xlsx, .xls, .json, .csv, .txt" onchange="handleFileSelect(event)">
+      </div>
+      <div id="upload-status" style="margin-top: 1rem; display: none; padding: 10px 14px; border-radius: 8px; font-size: 0.9rem;"></div>
+    </div>
+
+    <!-- 摘要指標卡 -->
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-title">當月住院總人次 (分母)</div>
+        <div class="stat-value" id="card-total-pt">0</div>
+        <div class="stat-sub" id="card-month-label">無資料</div>
+      </div>
+      <div class="stat-card" style="border-left-color: var(--info);">
+        <div class="stat-title">住院總日數 (分子)</div>
+        <div class="stat-value" id="card-total-days">0</div>
+        <div class="stat-sub">平均住院日：<strong id="card-avg-los">0.0</strong> 天</div>
+      </div>
+      <div class="stat-card" style="border-left-color: var(--danger);">
+        <div class="stat-title">重點監護與重大註記</div>
+        <div class="stat-value" id="card-special-notes">0</div>
+        <div class="stat-sub" id="card-special-sub">DNR: 0 | 癌症: 0 | 約束: 0</div>
+      </div>
+      <div class="stat-card" style="border-left-color: var(--accent);">
+        <div class="stat-title">手術病患人次 (Y / N)</div>
+        <div class="stat-value"><span id="card-op-count" style="color:var(--accent);">0</span> <span style="font-size:1rem;color:var(--text-muted);font-weight:normal;">/ <span id="card-nonop-count">0</span></span></div>
+        <div class="stat-sub" id="card-op-rate">手術(Y): 0% | 非手術(N): 0%</div>
+      </div>
+    </div>
+
+    <!-- 病患清單 (收與合) -->
+    <div class="panel">
+      <div class="filter-bar">
+        <div class="filter-item">
+          <input type="text" id="search-pt" class="form-control" style="width: 250px;" placeholder="搜尋床號/姓名/病歷號/診斷/醫師" oninput="renderPatientList()">
+        </div>
+        <div class="filter-item">
+          <select id="filter-status" class="form-control" style="width: 160px;" onchange="renderPatientList()">
+            <option value="ALL">全部轉歸狀態</option>
+          </select>
+        </div>
+        <div class="filter-item">
+          <select id="filter-surgery" class="form-control" style="width: 150px;" onchange="renderPatientList()">
+            <option value="ALL">全部 (手術Y+N)</option>
+            <option value="Y">僅看 手術 (Y)</option>
+            <option value="N">僅看 非手術 (N)</option>
+          </select>
+        </div>
+        <div class="btn-group" style="margin-left: auto;">
+          <button class="btn-action primary" onclick="toggleAllCards(false)">📂 全部收起 (收)</button>
+          <button class="btn-action" onclick="toggleAllCards(true)">📖 全部展開 (合)</button>
+        </div>
+      </div>
+
+      <div style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.8rem; display: flex; justify-content: space-between;">
+        <span id="patient-count-info">共 0 位病患</span>
+        <span>提示：點擊任一病人列即可在「收」與「合」狀態間切換</span>
+      </div>
+
+      <div class="patient-accordion-group" id="patient-accordion-list">
+        <div style="text-align: center; color: var(--text-muted); padding: 3rem;">尚未載入病患資料，請先上傳每月報表 Excel 檔案</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 分頁 2: 護理監控指標 (自動抓取 & 視覺化量表) -->
+  <div id="tab-indicators" class="tab-content" style="display: none;">
+    <div class="gauge-grid">
+      <div class="gauge-card">
+        <div class="gauge-circle-box">
+          <svg>
+            <circle class="gauge-circle-bg" cx="42" cy="42" r="35"></circle>
+            <circle class="gauge-circle-bar" id="gauge-bar-occupancy" cx="42" cy="42" r="35" stroke="#10b981" stroke-dasharray="220" stroke-dashoffset="40"></circle>
+          </svg>
+          <div class="gauge-center-text" id="gauge-text-occupancy">0%</div>
+        </div>
+        <div class="gauge-info">
+          <h4>🏥 外科病房營運指數</h4>
+          <p>佔床率與平均住院日綜合評估（可自訂閾值門檻）</p>
+          <span class="gauge-status-badge scale-badge-safe" id="gauge-badge-occupancy">運作評鑑中</span>
+        </div>
+      </div>
+
+      <div class="gauge-card">
+        <div class="gauge-circle-box">
+          <svg>
+            <circle class="gauge-circle-bg" cx="42" cy="42" r="35"></circle>
+            <circle class="gauge-circle-bar" id="gauge-bar-safety" cx="42" cy="42" r="35" stroke="#10b981" stroke-dasharray="220" stroke-dashoffset="0"></circle>
+          </svg>
+          <div class="gauge-center-text" id="gauge-text-safety">100分</div>
+        </div>
+        <div class="gauge-info">
+          <h4>🛡️ 病人安全防護量表</h4>
+          <p>跌倒、壓瘡、給藥錯誤、術前準備異常綜合安全達標率</p>
+          <span class="gauge-status-badge scale-badge-safe" id="gauge-badge-safety">安全零容忍達標</span>
+        </div>
+      </div>
+
+      <div class="gauge-card">
+        <div class="gauge-circle-box">
+          <svg>
+            <circle class="gauge-circle-bg" cx="42" cy="42" r="35"></circle>
+            <circle class="gauge-circle-bar" id="gauge-bar-device" cx="42" cy="42" r="35" stroke="#0284c7" stroke-dasharray="220" stroke-dashoffset="0"></circle>
+          </svg>
+          <div class="gauge-center-text" id="gauge-text-device">100%</div>
+        </div>
+        <div class="gauge-info">
+          <h4>💉 侵入性管路安全量表</h4>
+          <p>中心導管、導尿管、鼻胃管滑脫與相關感染防護評級（支援「管路.XLS」自動匯入）</p>
+          <span class="gauge-status-badge scale-badge-safe" id="gauge-badge-device">無管路異常</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-header">
+        <div class="panel-title">📊 護理品質監控指標表 (含自訂閾值門檻、視覺化量表尺與門檻燈號)</div>
+        <div class="btn-group">
+          <div class="filter-item">
+            <label style="font-weight: 600; font-size: 0.88rem;">月份：</label>
+            <select id="select-ind-month" class="form-control" style="width: 130px;" onchange="renderIndicatorsTable()">
+              <option value="1">1 月份</option>
+              <option value="2">2 月份</option>
+              <option value="3">3 月份</option>
+              <option value="4">4 月份</option>
+              <option value="5">5 月份</option>
+              <option value="6">6 月份</option>
+              <option value="7">7 月份</option>
+              <option value="8">8 月份</option>
+              <option value="9" selected>9 月份</option>
+              <option value="10">10 月份</option>
+              <option value="11">11 月份</option>
+              <option value="12">12 月份</option>
+              <option value="ALL">全年 1-12月 總覽</option>
+            </select>
+          </div>
+          <button class="btn-action primary admin-only" id="btn-add-ind" onclick="openAddIndicatorModal()">➕ 自行新增監控指標</button>
+          <button class="btn-action" onclick="exportIndicatorsExcel()">匯出監控指標報表 (Excel)</button>
+        </div>
+      </div>
+
+      <div style="background: #f0fdf4; border: 1px solid #bbf7d0; padding: 10px 14px; border-radius: 8px; margin-bottom: 1rem; font-size: 0.85rem; color: #166534;">
+        💡 <strong>功能說明：</strong>
+        1. <strong>權限隔離設計</strong>：管理者（護理長/主管）可直接編輯「品管目標閾值」與調整手動填報數值；一般使用者則鎖定為唯讀狀態。<br>
+        2. <strong>管路數據自動帶入</strong>：拖曳「<code>管路.XLS</code>」即可自動累計全月中心導管、尿管、鼻胃管人日，系統將即時完成指標關聯計算。
+      </div>
+
+      <div style="overflow-x: auto; max-height: 620px; border: 1px solid var(--border); border-radius: 8px;">
+        <table class="ind-table" id="ind-main-table">
+          <thead id="ind-table-thead"></thead>
+          <tbody id="ind-table-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- 分頁 3: 年度資料統整與查詢 -->
+  <div id="tab-yearly" class="tab-content" style="display: none;">
+    <div class="panel">
+      <div class="panel-header">
+        <div class="panel-title">📅 歷月管理數據統整與全宗匯出</div>
+        <button class="btn-action primary" onclick="exportYearlyData()">匯出年度病房全宗明細 (Excel)</button>
+      </div>
+      <div style="overflow-x: auto; border: 1px solid var(--border); border-radius: 8px;">
+        <table class="ind-table">
+          <thead>
+            <tr>
+              <th>月份</th>
+              <th>住院人次</th>
+              <th>住院總天數</th>
+              <th>平均住院日</th>
+              <th>急診轉入</th>
+              <th>ICU轉入</th>
+              <th>手術人次 (Y)</th>
+              <th>非手術人次 (N)</th>
+              <th>DNR簽署</th>
+              <th>癌症病患</th>
+              <th>約束人次</th>
+              <th>住超過21天</th>
+            </tr>
+          </thead>
+          <tbody id="yearly-summary-tbody">
+            <tr><td colspan="12" style="text-align: center; color: var(--text-muted); padding: 2rem;">無歷月存檔資料</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- 分頁 4: 視覺化量表圖表分析 -->
+  <div id="tab-charts" class="tab-content" style="display: none;">
+    <div class="panel">
+      <div class="panel-header">
+        <div class="panel-title">
+          <span>📈 護理品質指標圖表分析看板 (多維度統計與圖檔下載)</span>
+        </div>
+        <div class="btn-group">
+          <button class="btn-action primary" onclick="exportAllChartsData()">匯出圖表分析數據 (Excel)</button>
+        </div>
+      </div>
+
+      <div class="chart-controls-bar">
+        <div class="filter-item">
+          <label style="font-weight: 600; font-size: 0.88rem;">📊 自選單項指標深度分析：</label>
+          <select id="chart-select-single-ind" class="form-control" style="width: 240px; padding: 6px 10px;" onchange="updateSingleIndicatorChart()">
+          </select>
+        </div>
+        <div class="filter-item">
+          <label style="font-weight: 600; font-size: 0.88rem;">圖表呈現模式：</label>
+          <select id="chart-select-type" class="form-control" style="width: 140px; padding: 6px 10px;" onchange="updateSingleIndicatorChart()">
+            <option value="line">折線趨勢圖 (Line)</option>
+            <option value="bar">柱狀長條圖 (Bar)</option>
+          </select>
+        </div>
+        <div style="margin-left: auto; color: var(--text-muted); font-size: 0.82rem;">
+          💡 點擊任一圖表右上角「💾 下載圖表」即可將高解析度 PNG 報表圖檔存檔
+        </div>
+      </div>
+
+      <div class="chart-card" style="margin-bottom: 1.5rem;">
+        <div class="chart-card-header">
+          <div>
+            <div class="chart-card-title" id="single-chart-title">📈 單項指標 1~12 月走勢與品管目標閾值對比</div>
+            <div class="chart-card-desc" id="single-chart-desc">動態疊加自訂品質閾值參考線，掌握全年度品質變異</div>
+          </div>
+          <button class="btn-chart-dl" onclick="downloadChartCanvas('canvas-single-ind', '單項指標趨勢圖')">💾 下載圖表 (PNG)</button>
+        </div>
+        <div class="chart-container-box" style="height: 360px;">
+          <canvas id="canvas-single-ind"></canvas>
+        </div>
+      </div>
+
+      <div class="chart-grid-2col">
+        <div class="chart-card">
+          <div class="chart-card-header">
+            <div>
+              <div class="chart-card-title">📉 歷月病房佔床率與平均住院日數趨勢</div>
+              <div class="chart-card-desc">左軸: 佔床率 (%) | 右軸: 平均住院日數 (天)</div>
+            </div>
+            <button class="btn-chart-dl" onclick="downloadChartCanvas('canvas-los-trend', '病房佔床率與住院天數趨勢圖')">💾 下載圖表 (PNG)</button>
+          </div>
+          <div class="chart-container-box">
+            <canvas id="canvas-los-trend"></canvas>
+          </div>
+        </div>
+
+        <div class="chart-card">
+          <div class="chart-card-header">
+            <div>
+              <div class="chart-card-title">💉 侵入性管路使用人日統計 (CVC / 尿管 / 鼻胃管)</div>
+              <div class="chart-card-desc">累計管路使用人日長條圖（支援「管路.XLS」自動對接）</div>
+            </div>
+            <button class="btn-chart-dl" onclick="downloadChartCanvas('canvas-tube-days', '侵入性管路使用人日圖')">💾 下載圖表 (PNG)</button>
+          </div>
+          <div class="chart-container-box">
+            <canvas id="canvas-tube-days"></canvas>
+          </div>
+        </div>
+
+        <div class="chart-card">
+          <div class="chart-card-header">
+            <div>
+              <div class="chart-card-title">🛡️ 病人安全不良事件通報人次</div>
+              <div class="chart-card-desc">跌倒、壓瘡、給藥異常、手術前準備不完整、檢體退件</div>
+            </div>
+            <button class="btn-chart-dl" onclick="downloadChartCanvas('canvas-safety-events', '病人安全異常事件分析圖')">💾 下載圖表 (PNG)</button>
+          </div>
+          <div class="chart-container-box">
+            <canvas id="canvas-safety-events"></canvas>
+          </div>
+        </div>
+
+        <div class="chart-card">
+          <div class="chart-card-header">
+            <div>
+              <div class="chart-card-title">🩺 手術處置 (Y/N) 與科別收治量能佔比</div>
+              <div class="chart-card-desc">精準辨識手術病患與非手術病患分佈</div>
+            </div>
+            <button class="btn-chart-dl" onclick="downloadChartCanvas('canvas-surgery-pie', '手術處置與科別分佈圖')">💾 下載圖表 (PNG)</button>
+          </div>
+          <div class="chart-container-box">
+            <canvas id="canvas-surgery-pie"></canvas>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 分頁 5: 數據庫存檔與備份 (管理者專用) -->
+  <div id="tab-backup" class="tab-content" style="display: none;">
+    <div class="panel">
+      <div class="panel-header">
+        <div class="panel-title">☁️ 雲端資料庫同步 (Supabase)</div>
+        <div class="btn-group">
+          <button class="btn-action primary" onclick="uploadAllDataToSupabase()">🚀 一鍵推送全量資料至 Supabase</button>
+        </div>
+      </div>
+      <p id="supabase-sync-status" style="font-size: 0.9rem; color: var(--text-muted); margin-top: 0.5rem;"></p>
+    </div>
+
+    <div class="panel">
+      <div class="panel-header">
+        <div class="panel-title">💾 單位數據庫管理與全量本機備份</div>
+        <div class="btn-group">
+          <button class="btn-action primary" onclick="downloadDatabaseBackup()">下載全量資料備份檔 (.json)</button>
+        </div>
+      </div>
+      <p style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 1rem;">
+        您可以將本護理站所有月份的病患資料、管路人日數據、各月自動擷取之指標數值與自訂閾值打包備份，更換電腦時一鍵還原。
+      </p>
+      <div style="background: #f8fafc; border: 1px solid var(--border); padding: 1.5rem; border-radius: 8px;">
+        <h5 style="margin-bottom: 8px; color: var(--primary);">📥 還原既有備份檔案</h5>
+        <input type="file" id="backup-file-input" accept=".json" onchange="restoreDatabaseBackup(event)" class="form-control" style="max-width: 400px; display: inline-block;">
+      </div>
+    </div>
+  </div>
+
+  <!-- 自行新增監控指標彈窗 -->
+  <div id="modal-add-indicator" class="modal-overlay">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div class="modal-title">
+          <span>➕ 自行新增護理品質監測指標</span>
+        </div>
+        <button class="modal-close-btn" onclick="closeAddIndicatorModal()">&times;</button>
+      </div>
+
+      <form onsubmit="saveNewCustomIndicator(event)">
+        <div class="form-row-2col">
+          <div class="form-group">
+            <label>指標分類 *</label>
+            <select id="new-ind-cat" class="form-control" required>
+              <option value="外科共通">外科共通</option>
+              <option value="重症與轉歸">重症與轉歸</option>
+              <option value="侵入性管路">侵入性管路</option>
+              <option value="管路滑脫">管路滑脫</option>
+              <option value="病安與異常">病安與異常</option>
+              <option value="自訂品管" selected>自訂品管指標</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>指標名稱 *</label>
+            <input type="text" id="new-ind-name" class="form-control" placeholder="例如：氣切管使用率(%)、非預期再入院率" required>
+          </div>
+        </div>
+
+        <div class="form-row-2col">
+          <div class="form-group">
+            <label>計量單位 *</label>
+            <select id="new-ind-unit" class="form-control" onchange="onCustomUnitChange(this.value)">
+              <option value="百分比" selected>百分比 (%) [x100]</option>
+              <option value="千分比">千分比 (‰) [x1000]</option>
+              <option value="天數">天數 (天)</option>
+              <option value="件數">件數 (件)</option>
+              <option value="人次">人次 (人)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>品管目標閾值 (可直接輸入) *</label>
+            <input type="text" id="new-ind-benchmark" class="form-control" placeholder="例如：≤ 5.0%、0%、75%~85%" value="≤ 5.0%" required>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>計算公式說明文字</label>
+          <input type="text" id="new-ind-formula" class="form-control" placeholder="例如：氣切使用人日 / 總住院人日">
+        </div>
+
+        <div class="rule-box">
+          <h5>🎯 分子自動尋找規則 (Numerator Auto Rule)</h5>
+          <select id="new-ind-num-rule" class="form-control" onchange="toggleCustomNumFilter(this.value)">
+            <optgroup label="手動填報模式">
+              <option value="manual" selected>✏️ 手動自行輸入 (若無報表數據)</option>
+            </optgroup>
+            <optgroup label="📋 自動自「病患月報 (09.xlsx)」擷取">
+              <option value="totalDays">轉出病人住院總日數 (totalDays)</option>
+              <option value="over21Count">住超過21天人次 (over21Count)</option>
+              <option value="toIcuCount">轉入加護病房人次 (toIcuCount)</option>
+              <option value="deathPlusAad">死亡(含AAD)人數 (deathPlusAad)</option>
+              <option value="deathCount">病人死亡人數 (deathCount)</option>
+              <option value="criticalAadCount">病危自動出院人數 (criticalAadCount)</option>
+              <option value="surgeryCount">手術病患人次 [手術=Y] (surgeryCount)</option>
+              <option value="nonSurgeryCount">非手術病患人次 [手術=N] (nonSurgeryCount)</option>
+              <option value="dnrCount">DNR 簽署病人數 (dnrCount)</option>
+              <option value="cancerCount">確診癌症病人數 (cancerCount)</option>
+              <option value="restraintCount">保護性約束使用人數 (restraintCount)</option>
+              <option value="erCount">急診轉入人數 (erCount)</option>
+              <option value="custom_filter">🔍 依病患欄位自訂過濾計數 (自訂關鍵字/科別/轉歸)</option>
+            </optgroup>
+            <optgroup label="💉 自動自「管路人日 (管路.XLS)」擷取">
+              <option value="cvcDays">中心導管(CVC)使用人日</option>
+              <option value="foleyDays">留置導尿管(Foley)使用人日</option>
+              <option value="ngDays">鼻胃管(NG)使用人日</option>
+              <option value="tracheostomyDays">氣切管使用人日</option>
+              <option value="endoDays">氣管內管使用人日</option>
+              <option value="pigtailDays">PIGTAIL使用人日</option>
+              <option value="chestTubeDays">胸管(CHESTTUBE)使用人日</option>
+              <option value="ivCathDays">IV Cath使用人日</option>
+            </optgroup>
+          </select>
+
+          <div id="box-custom-num-filter" class="filter-inline-group" style="display: none;">
+            <span style="font-size: 0.82rem; color: var(--text-muted);">條件：當病患</span>
+            <select id="num-filter-col" class="form-control" style="width: 130px; padding: 4px 8px;">
+              <option value="diagnosis">診斷</option>
+              <option value="dept">科別</option>
+              <option value="dr">主治醫師</option>
+              <option value="outStatus">轉出狀態</option>
+              <option value="source">轉入來源</option>
+            </select>
+            <select id="num-filter-op" class="form-control" style="width: 110px; padding: 4px 8px;">
+              <option value="contains">包含關鍵字</option>
+              <option value="equals">完全等於</option>
+            </select>
+            <input type="text" id="num-filter-val" class="form-control" style="width: 170px; padding: 4px 8px;" placeholder="輸入過濾詞 (如骨折)">
+            <span style="font-size: 0.82rem; color: var(--text-muted);">之病患總人數</span>
+          </div>
+        </div>
+
+        <div class="rule-box">
+          <h5>📐 分母自動尋找規則 (Denominator Auto Rule)</h5>
+          <select id="new-ind-den-rule" class="form-control" onchange="toggleCustomDenFixed(this.value)">
+            <optgroup label="📋 自動自「病患月報」擷取">
+              <option value="totalPatients" selected>轉出總人次 / 住院人次 (totalPatients)</option>
+              <option value="totalDays">總住院人日 / 住院總日數 (totalDays)</option>
+              <option value="surgeryCount">手術病患總人次 [手術=Y] (surgeryCount)</option>
+              <option value="nonSurgeryCount">非手術病患總人次 [手術=N] (nonSurgeryCount)</option>
+            </optgroup>
+            <optgroup label="💉 自動自「管路人日」擷取">
+              <option value="cvcDays">中心導管(CVC)使用人日</option>
+              <option value="foleyDays">留置導尿管(Foley)使用人日</option>
+              <option value="ngDays">鼻胃管(NG)使用人日</option>
+              <option value="tracheostomyDays">氣切管使用人日</option>
+            </optgroup>
+            <optgroup label="固定設定或手動">
+              <option value="fixed">🔢 固定基準數值 (如床日數 1674)</option>
+              <option value="manual">✏️ 手動自行輸入分母</option>
+            </optgroup>
+          </select>
+
+          <div id="box-custom-den-fixed" class="filter-inline-group" style="display: none;">
+            <span style="font-size: 0.82rem; color: var(--text-muted);">設定固定分母數值：</span>
+            <input type="number" step="any" id="den-fixed-val" class="form-control" style="width: 150px; padding: 4px 8px;" value="1674" placeholder="例如 1674">
+          </div>
+        </div>
+
+        <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 1.5rem;">
+          <button type="button" class="btn-action" onclick="closeAddIndicatorModal()">取消</button>
+          <button type="submit" class="btn-action primary">確認儲存並即時計算</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</main>
+
+<footer>
+  義大醫療財團法人義大醫院 護理部 病房資料管理系統 &copy; 2026. 單位主管權限隔離與本地安全存檔
+</footer>
+
+<script>
+  // 義大醫院全院 36 個單位設定
+  const edahUnits = [
+    { group: "一般病房 (18個單位)", units: [
+      { id: "A056", name: "5A病房" }, { id: "A055", name: "5B病房" },
+      { id: "A061", name: "6A病房" }, { id: "A062", name: "6B病房" },
+      { id: "A071", name: "7A病房" }, { id: "A072", name: "7B病房" },
+      { id: "A081", name: "8A病房" }, { id: "A082", name: "8B病房" },
+      { id: "A091", name: "9A病房" }, { id: "A092", name: "9B病房" },
+      { id: "A101", name: "10A病房" }, { id: "A102", name: "10B病房" },
+      { id: "A111", name: "11A病房" }, { id: "A112", name: "11B病房" },
+      { id: "A121", name: "12A病房" }, { id: "A122", name: "12B病房" },
+      { id: "A131", name: "13A病房" }, { id: "A132", name: "13B病房" }
+    ]},
+    { group: "加護病房 (ICU) (10個單位)", units: [
+      { id: "A031", name: "A031 NSICU" }, { id: "A032", name: "A032 SICU-1" },
+      { id: "A033", name: "A033 PICU" }, { id: "A035", name: "A035 MICU" },
+      { id: "A036", name: "A036 CCU" }, { id: "A037", name: "A037 RCC" },
+      { id: "A038", name: "A038 RICU" }, { id: "A039", name: "A039 SICU-2" },
+      { id: "A040", name: "A040 燒燙傷中心" }, { id: "A041", name: "A041 NICU" }
+    ]},
+    { group: "特殊單位 (8個單位)", units: [
+      { id: "A034", name: "麻醉恢復室" }, { id: "A052", name: "嬰兒重度床" },
+      { id: "A054", name: "產房" }, { id: "2142", name: "美容中心" },
+      { id: "C201", name: "日間照病房" }, { id: "OR", name: "手術室" },
+      { id: "T005", name: "住院中心" }, { id: "ER", name: "急診室" }
+    ]}
+  ];
+
+  let currentUnitId = "";
+  let currentUnitName = "";
+  let currentUser = "護理長";
+  let currentUserRole = "admin"; // "user" 或 "admin"
+  let activeMonth = "11509";
+  let parsedPatients = [];
+  let currentUploadType = "auto";
+
+  // Supabase 初始化 (金鑰與專案位址)
+  const SUPABASE_URL = "https://quvzwvrtvrerzqqufxyn.supabase.co";
+  const SUPABASE_KEY = "sb_publishable_qvUQF9IhyuTbb0OSM7hfpw_AEnqWNHU";
+  const supabaseClient = window.supabase ? window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY) : null;
+
+  // 26 項監測指標定義
+  const indicatorDefinitions = [
+    { id: "los_rate", cat: "外科共通", name: "佔床率(%)", unit: "百分比", factor: 100, formula: "總住院人日 / 床日數", autoNum: "totalDays", autoDen: null, defaultDen: 1674, benchmark: "75%~85%", evalType: "occupancy" },
+    { id: "avg_los", cat: "外科共通", name: "平均住院日數", unit: "天數", factor: 1, formula: "轉出病人住院總日數 / 轉出總人次", autoNum: "totalDays", autoDen: "totalPatients", benchmark: "≤ 7.5天", evalType: "stayDays" },
+    { id: "over21_rate", cat: "外科共通", name: "住超過21天率(%)", unit: "百分比", factor: 100, formula: "住超過21天之人次 / 轉出總人次", autoNum: "over21Count", autoDen: "totalPatients", benchmark: "≤ 5.0%", evalType: "over21" },
+    { id: "inf_density", cat: "外科共通", name: "感染密度(‰)", unit: "千分比", factor: 1000, formula: "感染人數 / 總住院人日", autoNum: null, autoDen: "totalDays", benchmark: "≤ 2.0‰", evalType: "rateLow" },
+    { id: "cpcr_rate", cat: "重症與轉歸", name: "CPCR率(%)", unit: "百分比", factor: 100, formula: "CPCR人次 / 總住院人日", autoNum: null, autoDen: "totalDays", benchmark: "≤ 0.1%", evalType: "rateLow" },
+    { id: "unexpected_arrest", cat: "重症與轉歸", name: "非預期性心跳停止率(%)", unit: "百分比", factor: 100, formula: "非預期性心跳停止件數 / 總住院人數", autoNum: null, autoDen: "totalPatients", benchmark: "0%", evalType: "zero" },
+    { id: "mortality_rate", cat: "重症與轉歸", name: "死亡率(%)", unit: "百分比", factor: 100, formula: "病人死亡數(含AAD) / 轉出總人數", autoNum: "deathPlusAad", autoDen: "totalPatients", benchmark: "≤ 1.5%", evalType: "mortality" },
+    { id: "to_icu_rate", cat: "重症與轉歸", name: "轉入加護病房率(%)", unit: "百分比", factor: 100, formula: "轉入加護病房人次 / 住院人次", autoNum: "toIcuCount", autoDen: "totalPatients", benchmark: "≤ 8.0%", evalType: "toIcu" },
+    { id: "critical_aad", cat: "重症與轉歸", name: "病危自動出院率(%)", unit: "百分比", factor: 100, formula: "病危自動出院人次 / 出院總人次", autoNum: "criticalAadCount", autoDen: "totalPatients", benchmark: "≤ 1.0%", evalType: "rateLow" },
+    { id: "general_aad", cat: "重症與轉歸", name: "一般自動出院率(%)", unit: "百分比", factor: 100, formula: "一般自動出院人次 / 出院總人次", autoNum: "generalAadCount", autoDen: "totalPatients", benchmark: "≤ 0.5%", evalType: "rateLow" },
+    { id: "cvc_use_rate", cat: "侵入性管路", name: "中心導管使用率(%)", unit: "百分比", factor: 100, formula: "中心導管使用人日 / 總住院人日", autoNum: "cvcDays", autoDen: "totalDays", benchmark: "≤ 15%", evalType: "deviceUsage" },
+    { id: "foley_use_rate", cat: "侵入性管路", name: "留置導尿管使用率(%)", unit: "百分比", factor: 100, formula: "留置導尿管使用人日 / 總住院人日", autoNum: "foleyDays", autoDen: "totalDays", benchmark: "≤ 25%", evalType: "deviceUsage" },
+    { id: "ng_use_rate", cat: "侵入性管路", name: "鼻胃管使用率(%)", unit: "百分比", factor: 100, formula: "鼻胃管使用人日 / 總住院人日", autoNum: "ngDays", autoDen: "totalDays", benchmark: "≤ 20%", evalType: "deviceUsage" },
+    { id: "clabsi_rate", cat: "侵入性管路", name: "中心導管相關血流感染率(‰)", unit: "千分比", factor: 1000, formula: "CLABSI 人次 / 中心導管使用人日", autoNum: null, autoDen: "cvcDays", benchmark: "≤ 1.5‰", evalType: "rateLow" },
+    { id: "cauti_rate", cat: "侵入性管路", name: "留置導尿管相關泌尿道感染率(‰)", unit: "千分比", factor: 1000, formula: "CAUTI 人次 / 留置導尿管使用人日", autoNum: null, autoDen: "foleyDays", benchmark: "≤ 1.5‰", evalType: "rateLow" },
+    { id: "uti_rate", cat: "侵入性管路", name: "泌尿道感染率(‰)", unit: "千分比", factor: 1000, formula: "泌尿道感染人次 / 總住院人日", autoNum: null, autoDen: "totalDays", benchmark: "≤ 1.0‰", evalType: "rateLow" },
+    { id: "ssi_rate", cat: "侵入性管路", name: "術後傷口感染率(‰)", unit: "千分比", factor: 1000, formula: "手術部位感染人次 / 總住院人日", autoNum: null, autoDen: "totalDays", benchmark: "≤ 1.0‰", evalType: "rateLow" },
+    { id: "cvc_slip", cat: "管路滑脫", name: "中心靜脈導管滑脫率(%)", unit: "百分比", factor: 100, formula: "中心靜脈導管滑脫人次 / 中心導管使用人日", autoNum: null, autoDen: "cvcDays", benchmark: "0%", evalType: "zero" },
+    { id: "foley_slip", cat: "管路滑脫", name: "留置導尿管滑脫率(%)", unit: "百分比", factor: 100, formula: "留置導尿管滑脫人次 / 留置導尿管使用人日", autoNum: null, autoDen: "foleyDays", benchmark: "0%", evalType: "zero" },
+    { id: "ng_slip", cat: "管路滑脫", name: "鼻胃管滑脫率(%)", unit: "百分比", factor: 100, formula: "鼻胃管滑脫人次 / 鼻胃管使用人日", autoNum: null, autoDen: "ngDays", benchmark: "0%", evalType: "zero" },
+    { id: "fall_rate", cat: "病安與異常", name: "住院病人跌倒發生率(%)", unit: "百分比", factor: 100, formula: "住院病人跌倒件數 / 總住院人日", autoNum: null, autoDen: "totalDays", benchmark: "≤ 0.05%", evalType: "rateLow" },
+    { id: "pu_rate", cat: "病安與異常", name: "住院病人壓瘡發生率(%)", unit: "百分比", factor: 100, formula: "壓瘡發生件數 / 總住院人日", autoNum: null, autoDen: "totalDays", benchmark: "0%", evalType: "zero" },
+    { id: "med_error_rate", cat: "病安與異常", name: "護理人員給藥異常比率(%)", unit: "百分比", factor: 100, formula: "給藥異常件數 / 總住院人日", autoNum: null, autoDen: "totalDays", benchmark: "0%", evalType: "zero" },
+    { id: "preop_error_rate", cat: "病安與異常", name: "手術前準備不完整率(%)", unit: "百分比", factor: 100, formula: "手術前準備不完整人次 / 手術病患人次", autoNum: null, autoDen: "surgeryCount", benchmark: "≤ 0.8%", evalType: "rateLow" },
+    { id: "specimen_reject", cat: "病安與異常", name: "檢體退件率(%)", unit: "百分比", factor: 100, formula: "檢體退件數 / 總送檢次數", autoNum: null, autoDen: null, benchmark: "≤ 2.0%", evalType: "rateLow" },
+    { id: "rrt_rate", cat: "病安與異常", name: "RRT通報件數(%)", unit: "百分比", factor: 100, formula: "RRT通報件數 / 住院人次", autoNum: null, autoDen: "totalPatients", benchmark: "≤ 1.0%", evalType: "rateLow" }
+  ];
+
+  // 登入與權限處理
+ // 全域變數
 let currentStaffId = "";
 
 async function handleRoleLogin() {
@@ -77,3 +909,1933 @@ async function handleRoleLogin() {
 
   loadData();
 }
+
+    currentUserRole = roleSelect;
+    currentUnitId = wardSelect;
+    currentUnitName = document.getElementById("select-ward").options[document.getElementById("select-ward").selectedIndex].text;
+    currentUser = currentUserRole === "admin" ? `護理長 (${username})` : `護理師 (${username})`;
+
+    if (currentUserRole === "admin") {
+      document.body.classList.remove("is-user");
+      document.body.classList.add("is-admin");
+    } else {
+      document.body.classList.remove("is-admin");
+      document.body.classList.add("is-user");
+    }
+
+    applyRolePermissions(currentUserRole);
+
+    document.getElementById("badge-user").textContent = currentUser;
+    document.getElementById("header-unit-switch").value = currentUnitId;
+    document.getElementById("user-badge").style.display = "flex";
+    document.getElementById("login-section").style.display = "none";
+    document.getElementById("main-section").style.display = "block";
+
+    loadData();
+  }
+
+  function applyRolePermissions(role) {
+    const headerUnitSwitch = document.getElementById("header-unit-switch");
+    const uploadDropZone = document.querySelector(".drop-zone");
+    const tabBackupBtn = document.querySelector("button[onclick=\"switchTab('backup')\"]");
+    const btnAddInd = document.getElementById("btn-add-ind");
+
+    if (role === "user") {
+      if (headerUnitSwitch) headerUnitSwitch.disabled = true;
+      if (tabBackupBtn) tabBackupBtn.style.display = "none";
+      if (btnAddInd) btnAddInd.style.display = "none";
+      if (uploadDropZone) {
+        uploadDropZone.style.opacity = "0.6";
+        uploadDropZone.style.pointerEvents = "none";
+        uploadDropZone.querySelector("p").textContent = "🔒 報表上傳功能僅限護理長與主管操作";
+      }
+    } else {
+      if (headerUnitSwitch) headerUnitSwitch.disabled = false;
+      if (tabBackupBtn) tabBackupBtn.style.display = "inline-block";
+      if (btnAddInd) btnAddInd.style.display = "inline-flex";
+      if (uploadDropZone) {
+        uploadDropZone.style.opacity = "1";
+        uploadDropZone.style.pointerEvents = "auto";
+        uploadDropZone.querySelector("p").textContent = "點擊選取 或 拖曳義大醫院 Excel 報表至此 (.xlsx / .xls)";
+      }
+    }
+  }
+
+  ffunction populateUnitDropdowns() {
+  const selLogin = document.getElementById('select-ward');
+  const selHeader = document.getElementById('header-unit-switch');
+
+  selLogin.innerHTML = '<option value="" disabled selected>-- 請選擇所屬單位 / 護理站 --</option>';
+  selHeader.innerHTML = '<option value="" disabled selected>-- 切換單位 --</option>';
+
+  edahUnits.forEach(grp => {
+    const optGroupLogin = document.createElement('optgroup');
+    optGroupLogin.label = grp.group;
+    const optGroupHeader = document.createElement('optgroup');
+    optGroupHeader.label = grp.group;
+
+    grp.units.forEach(u => {
+      const opt1 = document.createElement('option');
+      opt1.value = u.id;
+      opt1.textContent = `${u.name} (${u.id})`;
+      optGroupLogin.appendChild(opt1);
+
+      const opt2 = document.createElement('option');
+      opt2.value = u.id;
+      opt2.textContent = `${u.name} (${u.id})`;
+      optGroupHeader.appendChild(opt2);
+    });
+
+    selLogin.appendChild(optGroupLogin);
+    selHeader.appendChild(optGroupHeader);
+  });
+}
+  function getStorageKey(key) { return `EDAH_${currentUnitId}_${key}`; }
+
+  function switchUnitFromHeader(unitId) {
+    if (currentUserRole !== 'admin') {
+      alert('一般使用者不具備跨單位切換權限！');
+      return;
+    }
+    currentUnitId = unitId;
+    const sel = document.getElementById('header-unit-switch');
+    currentUnitName = sel.options[sel.selectedIndex].text;
+    document.getElementById('select-ward').value = currentUnitId;
+    loadData();
+  }
+
+  function logout() {
+    document.getElementById('login-section').style.display = 'flex';
+    document.getElementById('main-section').style.display = 'none';
+    document.getElementById('user-badge').style.display = 'none';
+  }
+
+  function switchTab(t) {
+    if (t === 'backup' && currentUserRole !== 'admin') {
+      alert('您無權訪問資料庫備份分頁！');
+      return;
+    }
+    document.querySelectorAll('.tab-nav .tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(c => c.style.display = 'none');
+    event.currentTarget.classList.add('active');
+    document.getElementById(`tab-${t}`).style.display = 'block';
+    if (t === 'indicators') renderIndicatorsTable();
+    if (t === 'charts') renderChartsView();
+    if (t === 'yearly') renderYearlyTable();
+  }
+
+  function setUploadType(type) {
+    currentUploadType = type;
+    document.querySelectorAll('.source-tab').forEach(t => t.classList.remove('active'));
+    document.getElementById(`tab-src-${type}`).classList.add('active');
+  }
+
+  function handleDrop(e) {
+    e.preventDefault();
+    if (currentUserRole !== 'admin') return;
+    if (e.dataTransfer.files.length) processFile(e.dataTransfer.files[0]);
+  }
+
+  function handleFileSelect(e) {
+    if (currentUserRole !== 'admin') return;
+    if (e.target.files.length) processFile(e.target.files[0]);
+  }
+
+  function cleanVal(v) { return v === null || v === undefined ? '' : String(v).trim(); }
+
+  // 檔案解析與自動分類處理
+  function processFile(file) {
+    const status = document.getElementById('upload-status');
+    status.style.display = 'block';
+    status.style.background = '#e0f2fe';
+    status.style.color = '#0369a1';
+    status.textContent = `正在讀取報表：${file.name}...`;
+
+    if (file.name.endsWith('.json')) {
+      restoreDatabaseFromJson(file);
+      return;
+    }
+
+    if (file.name.includes('管路') || currentUploadType === 'devices') {
+      parseTubeReportFile(file);
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      try {
+        const data = new Uint8Array(e.target.result);
+        const wb = XLSX.read(data, { type: 'array' });
+        
+        if (wb.SheetNames.includes('2026年指標-帶基本檔') || wb.SheetNames.includes('基本檔')) {
+          parseIndicatorsWorkbook(wb, file.name);
+          return;
+        }
+
+        parsePatientListSheet(wb, file.name);
+      } catch (err) {
+        parseTubeReportFile(file);
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  }
+
+  function parseTubeReportFile(file) {
+    const status = document.getElementById('upload-status');
+    status.style.display = 'block';
+    status.style.background = '#e0f2fe';
+    status.style.color = '#0369a1';
+    status.textContent = `正在以繁體中文 (Big5/CP950) 讀取管路報表：${file.name}...`;
+
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      try {
+        let text = e.target.result;
+        if (!text || text.length < 50) throw new Error('檔案內容為空或無法讀取');
+        processTubeText(text, file.name);
+      } catch (err) {
+        tryReadTubeAsArrayBuffer(file);
+      }
+    };
+    reader.onerror = () => tryReadTubeAsArrayBuffer(file);
+    reader.readAsText(file, 'big5');
+  }
+
+  function tryReadTubeAsArrayBuffer(file) {
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      try {
+        const buffer = e.target.result;
+        let text = '';
+        try {
+          text = new TextDecoder('big5').decode(new Uint8Array(buffer));
+        } catch(ex) {
+          try {
+            text = new TextDecoder('utf-8').decode(new Uint8Array(buffer));
+          } catch(ex2) {
+            text = '';
+          }
+        }
+
+        if (text && (text.includes('NG') || text.includes('中心導管') || text.includes('護理站代碼'))) {
+          processTubeText(text, file.name);
+          return;
+        }
+
+        const wb = XLSX.read(new Uint8Array(buffer), { type: 'array' });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const rawJson = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+        processTubeJson(rawJson, file.name);
+      } catch (err) {
+        const status = document.getElementById('upload-status');
+        status.style.background = '#fee2e2';
+        status.style.color = '#b91c1c';
+        status.textContent = `❌ 管路檔案解析失敗：${err.message}`;
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  }
+
+  function processTubeText(text, filename) {
+    const lines = text.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
+    if (lines.length < 2) throw new Error('管路檔案內容行數不足！');
+
+    const headers = lines[0].split('\t').map(c => cleanVal(c.replace(/"/g, '')));
+    
+    let idxCode = headers.findIndex(h => h.includes('護理站代碼') || h.includes('站代碼') || h.includes('代碼'));
+    let idxName = headers.findIndex(h => h.includes('名稱') || h.includes('護理站名稱'));
+    let idxDate = headers.findIndex(h => h.includes('統計日期') || h.includes('日期'));
+    let idxCVC = headers.findIndex(h => h.includes('中心導管') || h.includes('CVC'));
+    let idxFoley = headers.findIndex(h => h.includes('尿管') || h.includes('導尿管') || h.includes('Foley'));
+    let idxNG = headers.findIndex(h => h.toUpperCase() === 'NG' || h.includes('鼻胃管'));
+
+    if (idxCode === -1 || idxCVC === -1 || idxFoley === -1) {
+      idxCode = 0; idxName = 1; idxDate = 2; idxCVC = 3; idxFoley = 4; idxNG = 10;
+    }
+
+    const rows = [];
+    let detectedMonth = "9";
+
+    for (let i = 1; i < lines.length; i++) {
+      const cols = lines[i].split('\t').map(c => cleanVal(c.replace(/"/g, '')));
+      if (cols.length <= idxCode) continue;
+
+      const codeVal = cols[idxCode] || '';
+      const nameVal = idxName !== -1 && idxName < cols.length ? cols[idxName] : '';
+      const dateVal = idxDate !== -1 && idxDate < cols.length ? cols[idxDate] : '';
+      const cvcVal = idxCVC !== -1 && idxCVC < cols.length ? (parseFloat(cols[idxCVC]) || 0) : 0;
+      const foleyVal = idxFoley !== -1 && idxFoley < cols.length ? (parseFloat(cols[idxFoley]) || 0) : 0;
+      const ngVal = idxNG !== -1 && idxNG < cols.length ? (parseFloat(cols[idxNG]) || 0) : 0;
+
+      rows.push({
+        code: codeVal,
+        name: nameVal,
+        date: dateVal,
+        cvc: cvcVal,
+        foley: foleyVal,
+        ng: ngVal,
+        trach: parseFloat(cols[5]) || 0,
+        endo: parseFloat(cols[6]) || 0,
+        pigtail: parseFloat(cols[9]) || 0,
+        chesttube: parseFloat(cols[13]) || 0,
+        ivCath: parseFloat(cols[14]) || 0
+      });
+
+      if (dateVal && dateVal.includes('-')) {
+        const parts = dateVal.split('-');
+        if (parts.length >= 2) detectedMonth = String(parseInt(parts[1], 10));
+      }
+    }
+
+    applyTubeRows(rows, detectedMonth, filename);
+  }
+
+  function processTubeJson(rawJson, filename) {
+    if (rawJson.length < 2) throw new Error('管路工作表無足夠數據！');
+    const headers = rawJson[0].map(c => cleanVal(String(c)));
+    
+    let idxCode = headers.findIndex(h => h.includes('護理站代碼') || h.includes('代碼'));
+    let idxName = headers.findIndex(h => h.includes('名稱'));
+    let idxDate = headers.findIndex(h => h.includes('統計日期') || h.includes('日期'));
+    let idxCVC = headers.findIndex(h => h.includes('中心導管') || h.includes('CVC'));
+    let idxFoley = headers.findIndex(h => h.includes('尿管') || h.includes('導尿管'));
+    let idxNG = headers.findIndex(h => h.toUpperCase() === 'NG' || h.includes('鼻胃管'));
+
+    if (idxCode === -1 || idxCVC === -1) {
+      idxCode = 0; idxName = 1; idxDate = 2; idxCVC = 3; idxFoley = 4; idxNG = 10;
+    }
+
+    const rows = [];
+    let detectedMonth = "9";
+    for (let i = 1; i < rawJson.length; i++) {
+      const cols = rawJson[i];
+      if (!cols || !cols.length) continue;
+      const codeVal = cleanVal(String(cols[idxCode] || ''));
+      const nameVal = idxName !== -1 ? cleanVal(String(cols[idxName] || '')) : '';
+      const dateVal = idxDate !== -1 ? cleanVal(String(cols[idxDate] || '')) : '';
+      const cvcVal = parseFloat(cols[idxCVC]) || 0;
+      const foleyVal = parseFloat(cols[idxFoley]) || 0;
+      const ngVal = parseFloat(cols[idxNG]) || 0;
+
+      rows.push({ code: codeVal, name: nameVal, date: dateVal, cvc: cvcVal, foley: foleyVal, ng: ngVal });
+      if (dateVal && dateVal.includes('-')) {
+        const parts = dateVal.split('-');
+        if (parts.length >= 2) detectedMonth = String(parseInt(parts[1], 10));
+      }
+    }
+    applyTubeRows(rows, detectedMonth, filename);
+  }
+
+  function applyTubeRows(rows, detectedMonth, filename) {
+    const status = document.getElementById('upload-status');
+    
+    let targetRows = rows.filter(r => {
+      if (!r.code && !r.name) return false;
+      if (currentUnitId && (r.code.toUpperCase() === currentUnitId.toUpperCase() || r.name.includes(currentUnitId) || currentUnitId.includes(r.code))) return true;
+      if (currentUnitName && (currentUnitName.includes(r.name) || r.name.includes(currentUnitName.replace(/病房|單位|\(.*\)/g, '').trim()))) return true;
+      return false;
+    });
+
+    if (!targetRows.length) {
+      const match9B = rows.filter(r => r.code === 'A092' || r.name.includes('9B'));
+      if (match9B.length) {
+        targetRows = match9B;
+        currentUnitId = 'A092';
+        currentUnitName = '9B病房';
+        const selHeader = document.getElementById('header-unit-switch');
+        if (selHeader) selHeader.value = 'A092';
+        const selWard = document.getElementById('select-ward');
+        if (selWard) selWard.value = 'A092';
+      }
+    }
+
+    if (!targetRows.length) {
+      throw new Error(`已成功解析檔案共 ${rows.length} 筆資料，但未比對到符合當前單位【${currentUnitName || currentUnitId}】之數據！`);
+    }
+
+    const totalCVC = Math.round(targetRows.reduce((sum, r) => sum + r.cvc, 0));
+    const totalFoley = Math.round(targetRows.reduce((sum, r) => sum + r.foley, 0));
+    const totalNG = Math.round(targetRows.reduce((sum, r) => sum + r.ng, 0));
+    const mNum = parseInt(detectedMonth, 10) || 9;
+
+    const totalTrach = Math.round(targetRows.reduce((sum, r) => sum + (r.trach || 0), 0));
+    const totalEndo = Math.round(targetRows.reduce((sum, r) => sum + (r.endo || 0), 0));
+    const totalPigtail = Math.round(targetRows.reduce((sum, r) => sum + (r.pigtail || 0), 0));
+    const totalChest = Math.round(targetRows.reduce((sum, r) => sum + (r.chesttube || 0), 0));
+    const totalIV = Math.round(targetRows.reduce((sum, r) => sum + (r.ivCath || 0), 0));
+
+    localStorage.setItem(getStorageKey(`tubes_${mNum}`), JSON.stringify({
+      month: mNum, cvc: totalCVC, foley: totalFoley, ng: totalNG,
+      trach: totalTrach, endo: totalEndo, pigtail: totalPigtail,
+      chesttube: totalChest, ivCath: totalIV, daysCount: targetRows.length
+    }));
+
+    let indStore = getStoredIndicators();
+    const syncTubeIndicator = (indId, field, val) => {
+      if (!indStore[indId]) indStore[indId] = {};
+      if (!indStore[indId][mNum]) indStore[indId][mNum] = { num: null, den: null, val: null };
+      indStore[indId][mNum][field] = val;
+      const def = getAllIndicators().find(i => i.id === indId);
+      const num = indStore[indId][mNum].num;
+      const den = indStore[indId][mNum].den;
+      if (num !== null && den !== null && den > 0 && def) {
+        indStore[indId][mNum].val = (num / den) * def.factor;
+      }
+    };
+
+    syncTubeIndicator('cvc_use_rate', 'num', totalCVC);
+    syncTubeIndicator('foley_use_rate', 'num', totalFoley);
+    syncTubeIndicator('ng_use_rate', 'num', totalNG);
+
+    syncTubeIndicator('clabsi_rate', 'den', totalCVC);
+    syncTubeIndicator('cvc_slip', 'den', totalCVC);
+    syncTubeIndicator('cauti_rate', 'den', totalFoley);
+    syncTubeIndicator('foley_slip', 'den', totalFoley);
+    syncTubeIndicator('ng_slip', 'den', totalNG);
+
+    saveStoredIndicators(indStore);
+
+    status.style.background = '#dcfce7';
+    status.style.color = '#15803d';
+    status.textContent = `✅ 成功解析「${filename}」！已自動帶入【${currentUnitName}】${mNum}月份管路數據：中心導管 ${totalCVC} 人日、導尿管 ${totalFoley} 人日、鼻胃管 ${totalNG} 人日。`;
+
+    renderIndicatorsTable();
+  }
+
+  function parsePatientListSheet(wb, filename) {
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const raw = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+    
+    let month = "";
+    let ward = "";
+    for (let r = 0; r < 6; r++) {
+      const s = (raw[r] || []).join(" ");
+      const mm = s.match(/查詢月份[：:]\s*(\d+)/);
+      if (mm) month = mm[1];
+      const wm = s.match(/護理站別[：:]\s*([A-Za-z0-9]+)/);
+      if (wm) ward = wm[1];
+    }
+    if (!month) {
+      const mMatch = filename.match(/(\d{5}|\d{2})/);
+      month = mMatch ? mMatch[0] : "11509";
+    }
+    activeMonth = month;
+
+    if (ward) {
+      const targetOption = document.querySelector(`#header-unit-switch option[value="${ward}"]`);
+      if (targetOption) {
+        currentUnitId = ward;
+        currentUnitName = targetOption.textContent;
+        document.getElementById('header-unit-switch').value = ward;
+        document.getElementById('select-ward').value = ward;
+      }
+    }
+
+    let headerIdx = -1;
+    for (let r = 0; r < 10; r++) {
+      const rowStr = (raw[r] || []).join(' ');
+      if (rowStr.includes('床號') || rowStr.includes('病患姓名')) {
+        headerIdx = r; break;
+      }
+    }
+    if (headerIdx === -1) throw new Error('無法識別病房報表欄位！請確認為義大醫院護理站清單。');
+
+    const rowPrev = headerIdx > 0 ? (raw[headerIdx - 1] || []) : [];
+    const rowCurr = raw[headerIdx] || [];
+    const maxCols = Math.max(rowPrev.length, rowCurr.length, 45);
+    const headers = [];
+    for (let c = 0; c < maxCols; c++) {
+      const vCurr = cleanVal(rowCurr[c]);
+      const vPrev = cleanVal(rowPrev[c]);
+      headers.push(vCurr || vPrev || '');
+    }
+
+    const patients = [];
+
+    for (let r = headerIdx + 1; r < raw.length; r++) {
+      const row = raw[r];
+      if (!row || !row.length) continue;
+      
+      const getVal = (col, fallbackIdx) => {
+        let idx = headers.indexOf(col);
+        if (idx === -1) idx = headers.findIndex(h => h && h.includes(col));
+        if (idx === -1 && fallbackIdx !== undefined) idx = fallbackIdx;
+        return idx !== -1 && idx < row.length ? cleanVal(row[idx]) : '';
+      };
+
+      const bed = getVal('床號', 2);
+      const name = getVal('病患姓名', 4);
+      if (!bed && !name) continue;
+
+      let rawOp = getVal('手術', 18);
+      let cleanOp = String(rawOp).trim().toUpperCase();
+      if (cleanOp === '是' || cleanOp === 'TRUE' || cleanOp === '1') cleanOp = 'Y';
+      if (cleanOp === '否' || cleanOp === 'FALSE' || cleanOp === '0') cleanOp = 'N';
+
+      patients.push({
+        ward: getVal('護理站', 0) || ward,
+        bed: bed,
+        chartNo: getVal('病歷號', 3),
+        name: name,
+        birthday: getVal('生日', 5),
+        gender: getVal('性別', 6),
+        diagnosis: getVal('診斷', 7),
+        dept: getVal('科別', 8),
+        inDate: getVal('轉入日期', 9),
+        inTime: getVal('轉入時間', 22),
+        source: getVal('轉入來源', 11),
+        outDate: getVal('轉出日期', 12),
+        outTime: getVal('轉出時間', 23),
+        outStatus: getVal('轉出狀態', 13) || getVal('出院病摘-出院狀況', 34),
+        los: parseFloat(getVal('住院天數(電腦)', 14)) || 0,
+        surgery: cleanOp,
+        lastOpDate: getVal('最後手術日', 19),
+        lastOpName: getVal('最後術式一', 27),
+        dr: getVal('主治醫師', 28),
+        dnr: getVal('DNR', 24),
+        cancer: getVal('癌', 25),
+        restraint: getVal('約束', 29),
+        orderDate: getVal('護囑日期', 30),
+        orderTime: getVal('護囑時間', 31),
+        diffMin: getVal('時間差(分)', 32),
+        erDays: getVal('急診天數', 33),
+        admitDate: getVal('入院日期', 21)
+      });
+    }
+
+    parsedPatients = patients;
+    localStorage.setItem(getStorageKey(`patients_${month}`), JSON.stringify(patients));
+    
+    let months = getSavedMonths();
+    if (!months.includes(month)) { months.push(month); months.sort(); saveMonths(months); }
+
+    computeAndSyncIndicatorsFromPatients(month, patients);
+
+    const status = document.getElementById('upload-status');
+    status.style.background = '#dcfce7';
+    status.style.color = '#15803d';
+    status.textContent = `✅ 成功載入！查詢月份：${month}，護理站：${currentUnitName}，共 ${patients.length} 位病患，已完成數據運算。`;
+
+    const mNum = parseInt(month.slice(-2), 10);
+    const selMonth = document.getElementById('select-ind-month');
+    if (selMonth && mNum >= 1 && mNum <= 12) selMonth.value = String(mNum);
+
+    updateOverviewCards();
+    populateFilterStatus();
+    renderPatientList();
+    renderIndicatorsTable();
+  }
+
+  function parseIndicatorsWorkbook(wb, filename) {
+    const ws = wb.Sheets['2026年指標-帶基本檔'] || wb.Sheets['基本檔'];
+    const indStore = getStoredIndicators();
+
+    for (let r = 6; r <= 56; r += 2) {
+      const name = cleanVal(ws[XLSX.utils.encode_cell({ r: r-1, c: 1 })]?.v);
+      if (!name) continue;
+      const targetInd = getAllIndicators().find(i => i.name.includes(name) || name.includes(i.name.replace(/\(.*?\)/g, '')));
+      if (!targetInd) continue;
+
+      if (!indStore[targetInd.id]) indStore[targetInd.id] = {};
+
+      for (let m = 1; m <= 12; m++) {
+        const cVal = 4 + (m - 1) * 2;
+        const cNum = 5 + (m - 1) * 2;
+        const val = ws[XLSX.utils.encode_cell({ r: r-1, c: cVal })]?.v;
+        const num = ws[XLSX.utils.encode_cell({ r: r-1, c: cNum })]?.v;
+        const den = ws[XLSX.utils.encode_cell({ r: r, c: cNum })]?.v;
+
+        if (!indStore[targetInd.id][m]) indStore[targetInd.id][m] = { num: null, den: null, val: null };
+        if (typeof num === 'number') indStore[targetInd.id][m].num = num;
+        if (typeof den === 'number') indStore[targetInd.id][m].den = den;
+        if (typeof val === 'number') indStore[targetInd.id][m].val = val;
+      }
+    }
+
+    saveStoredIndicators(indStore);
+
+    const status = document.getElementById('upload-status');
+    status.style.background = '#dcfce7';
+    status.style.color = '#15803d';
+    status.textContent = `✅ 成功匯入護理品質監控指標表！已同步更新 1~12 月指標歷史數據與各項分子分母。`;
+    renderIndicatorsTable();
+  }
+
+  function computeAndSyncIndicatorsFromPatients(month, patients) {
+    if (!patients || !patients.length) return;
+    const totalPatients = patients.length;
+    const totalDays = Math.round(patients.reduce((sum, p) => sum + (parseFloat(p.los) || 0), 0) * 10) / 10;
+    const over21Count = patients.filter(p => (parseFloat(p.los) || 0) > 21).length;
+    const toIcuCount = patients.filter(p => p.outStatus.includes('A03') || p.outStatus.toUpperCase().includes('ICU')).length;
+    const deathCount = patients.filter(p => p.outStatus.includes('死亡')).length;
+    const criticalAadCount = patients.filter(p => p.outStatus.includes('病危')).length;
+    const generalAadCount = patients.filter(p => p.outStatus.includes('一般') || p.outStatus.toUpperCase().includes('AAD')).length;
+    const deathPlusAad = deathCount + criticalAadCount;
+    
+    const surgeryCount = patients.filter(p => String(p.surgery).trim().toUpperCase() === 'Y' || p.surgery === '是').length;
+    const nonSurgeryCount = patients.filter(p => String(p.surgery).trim().toUpperCase() === 'N' || p.surgery === '否').length;
+    
+    const dnrCount = patients.filter(p => p.dnr && p.dnr !== 'N' && p.dnr !== '無').length;
+    const cancerCount = patients.filter(p => p.cancer && p.cancer !== 'N' && p.cancer !== '無').length;
+    const restraintCount = patients.filter(p => p.restraint && p.restraint !== 'N' && p.restraint !== '無').length;
+
+    const summary = {
+      month: month,
+      total: totalPatients,
+      totalDays: totalDays,
+      avgLos: (totalDays / (totalPatients || 1)).toFixed(2),
+      erCount: patients.filter(p => p.source.includes('急診')).length,
+      icuCount: toIcuCount,
+      opCount: surgeryCount,
+      nonOpCount: nonSurgeryCount,
+      dnrCount: dnrCount,
+      cancerCount: cancerCount,
+      restraintCount: restraintCount,
+      over21Count: over21Count
+    };
+    localStorage.setItem(getStorageKey(`summary_${month}`), JSON.stringify(summary));
+
+    const mNum = parseInt(month.slice(-2), 10);
+    if (isNaN(mNum) || mNum < 1 || mNum > 12) return;
+
+    let indStore = getStoredIndicators();
+
+    const autoValuesMap = {
+      totalPatients: totalPatients,
+      totalDays: totalDays,
+      over21Count: over21Count,
+      toIcuCount: toIcuCount,
+      deathPlusAad: deathPlusAad,
+      criticalAadCount: criticalAadCount,
+      generalAadCount: generalAadCount,
+      surgeryCount: surgeryCount
+    };
+
+    getAllIndicators().forEach(ind => {
+      if (!indStore[ind.id]) indStore[ind.id] = {};
+      if (!indStore[ind.id][mNum]) indStore[ind.id][mNum] = { num: null, den: null, val: null };
+
+      // 自訂過濾規則解析
+      if (ind.autoNum) {
+        if (ind.autoNum.startsWith('filter:')) {
+          const [, col, op, val] = ind.autoNum.split(':');
+          const targetVal = (val || '').toLowerCase();
+          const count = patients.filter(p => {
+            const fieldVal = String(p[col] || '').toLowerCase();
+            return op === 'equals' ? fieldVal === targetVal : fieldVal.includes(targetVal);
+          }).length;
+          indStore[ind.id][mNum].num = count;
+        } else if (autoValuesMap[ind.autoNum] !== undefined) {
+          indStore[ind.id][mNum].num = autoValuesMap[ind.autoNum];
+        }
+      }
+
+      if (ind.autoDen) {
+        if (ind.autoDen.startsWith('fixed:')) {
+          const fixedVal = parseFloat(ind.autoDen.split(':')[1]) || ind.defaultDen || 1674;
+          indStore[ind.id][mNum].den = fixedVal;
+        } else if (autoValuesMap[ind.autoDen] !== undefined) {
+          indStore[ind.id][mNum].den = autoValuesMap[ind.autoDen];
+        }
+      } else if (ind.defaultDen && (indStore[ind.id][mNum].den === null || indStore[ind.id][mNum].den === undefined)) {
+        indStore[ind.id][mNum].den = ind.defaultDen;
+      }
+
+      const num = indStore[ind.id][mNum].num;
+      const den = indStore[ind.id][mNum].den;
+      if (num !== null && den !== null && den > 0) {
+        indStore[ind.id][mNum].val = (num / den) * ind.factor;
+      }
+    });
+
+    saveStoredIndicators(indStore);
+  }
+
+  function getStoredIndicators() {
+    const raw = localStorage.getItem(getStorageKey('indicators_matrix'));
+    return raw ? JSON.parse(raw) : {};
+  }
+  function saveStoredIndicators(data) {
+    localStorage.setItem(getStorageKey('indicators_matrix'), JSON.stringify(data));
+  }
+
+  function getCustomBenchmarks() {
+    const raw = localStorage.getItem(getStorageKey('custom_benchmarks'));
+    return raw ? JSON.parse(raw) : {};
+  }
+  function saveCustomBenchmark(indId, val) {
+    if (currentUserRole !== 'admin') {
+      alert('一般使用者無法修改目標門檻！');
+      return;
+    }
+    const benchmarks = getCustomBenchmarks();
+    benchmarks[indId] = val.trim();
+    localStorage.setItem(getStorageKey('custom_benchmarks'), JSON.stringify(benchmarks));
+    renderIndicatorsTable();
+  }
+
+  function getSavedMonths() {
+    const raw = localStorage.getItem(getStorageKey('months_list'));
+    return raw ? JSON.parse(raw) : [];
+  }
+  function saveMonths(m) { localStorage.setItem(getStorageKey('months_list'), JSON.stringify(m)); }
+
+  function getCustomIndicators() {
+    const raw = localStorage.getItem(getStorageKey('custom_indicators_defs'));
+    return raw ? JSON.parse(raw) : [];
+  }
+  function saveCustomIndicators(list) {
+    localStorage.setItem(getStorageKey('custom_indicators_defs'), JSON.stringify(list));
+  }
+  function getAllIndicators() {
+    return [...indicatorDefinitions, ...getCustomIndicators()];
+  }
+
+  function openAddIndicatorModal() {
+    if (currentUserRole !== 'admin') {
+      alert('僅有護理長與主管可新增指標！');
+      return;
+    }
+    document.getElementById('modal-add-indicator').style.display = 'flex';
+  }
+  function closeAddIndicatorModal() {
+    document.getElementById('modal-add-indicator').style.display = 'none';
+  }
+
+  function onCustomUnitChange(unit) {
+    const bmInput = document.getElementById('new-ind-benchmark');
+    if (unit === '百分比') bmInput.value = '≤ 5.0%';
+    else if (unit === '千分比') bmInput.value = '≤ 2.0‰';
+    else if (unit === '天數') bmInput.value = '≤ 7.5天';
+    else bmInput.value = '0';
+  }
+
+  function toggleCustomNumFilter(val) {
+    document.getElementById('box-custom-num-filter').style.display = val === 'custom_filter' ? 'flex' : 'none';
+  }
+
+  function toggleCustomDenFixed(val) {
+    document.getElementById('box-custom-den-fixed').style.display = val === 'fixed' ? 'flex' : 'none';
+  }
+
+  function saveNewCustomIndicator(e) {
+    e.preventDefault();
+    if (currentUserRole !== 'admin') return;
+
+    const cat = document.getElementById('new-ind-cat').value;
+    const name = document.getElementById('new-ind-name').value.trim();
+    const unit = document.getElementById('new-ind-unit').value;
+    const benchmark = document.getElementById('new-ind-benchmark').value.trim() || '≤ 5.0%';
+    const formula = document.getElementById('new-ind-formula').value.trim() || '';
+    const numRule = document.getElementById('new-ind-num-rule').value;
+    const denRule = document.getElementById('new-ind-den-rule').value;
+
+    let autoNum = numRule !== 'manual' ? numRule : null;
+    let customFilter = null;
+    if (numRule === 'custom_filter') {
+      const col = document.getElementById('num-filter-col').value;
+      const op = document.getElementById('num-filter-op').value;
+      const val = document.getElementById('num-filter-val').value.trim();
+      if (!val) { alert('請輸入病患自訂過濾條件關鍵字！'); return; }
+      autoNum = `filter:${col}:${op}:${val}`;
+      customFilter = { column: col, operator: op, value: val };
+    }
+
+    let autoDen = denRule !== 'manual' ? denRule : null;
+    let defaultDen = null;
+    if (denRule === 'fixed') {
+      const fixedVal = parseFloat(document.getElementById('den-fixed-val').value) || 1674;
+      autoDen = `fixed:${fixedVal}`;
+      defaultDen = fixedVal;
+    }
+
+    let factor = 1;
+    if (unit === '百分比') factor = 100;
+    else if (unit === '千分比') factor = 1000;
+
+    let evalType = 'rateLow';
+    if (benchmark.includes('~')) evalType = 'occupancy';
+    else if (benchmark === '0' || benchmark === '0%') evalType = 'zero';
+    else if (unit === '天數') evalType = 'stayDays';
+
+    const newInd = {
+      id: `custom_${Date.now()}`,
+      cat: cat,
+      name: name,
+      unit: unit,
+      factor: factor,
+      formula: formula,
+      autoNum: autoNum,
+      autoDen: autoDen,
+      defaultDen: defaultDen,
+      benchmark: benchmark,
+      evalType: evalType,
+      customFilter: customFilter,
+      isCustom: true
+    };
+
+    const currentList = getCustomIndicators();
+    currentList.push(newInd);
+    saveCustomIndicators(currentList);
+
+    if (activeMonth && parsedPatients && parsedPatients.length) {
+      computeAndSyncIndicatorsFromPatients(activeMonth, parsedPatients);
+    }
+
+    closeAddIndicatorModal();
+    renderIndicatorsTable();
+    populateSingleIndicatorDropdown();
+    alert(`✅ 成功新增指標【${name}】！`);
+  }
+
+  function deleteCustomIndicator(indId) {
+    if (currentUserRole !== 'admin') {
+      alert('您無權刪除指標！');
+      return;
+    }
+    if (!confirm('確定要刪除此自訂指標嗎？此動作將一併移除歷史運算紀錄。')) return;
+    const currentList = getCustomIndicators().filter(i => i.id !== indId);
+    saveCustomIndicators(currentList);
+    
+    const indStore = getStoredIndicators();
+    if (indStore[indId]) {
+      delete indStore[indId];
+      saveStoredIndicators(indStore);
+    }
+
+    renderIndicatorsTable();
+    populateSingleIndicatorDropdown();
+  }
+
+  function loadData() {
+    const months = getSavedMonths();
+    if (months.length) {
+      activeMonth = months[months.length - 1];
+      const raw = localStorage.getItem(getStorageKey(`patients_${activeMonth}`));
+      if (raw) {
+        parsedPatients = JSON.parse(raw);
+        computeAndSyncIndicatorsFromPatients(activeMonth, parsedPatients);
+      }
+    } else {
+      parsedPatients = [];
+    }
+    updateOverviewCards();
+    populateFilterStatus();
+    renderPatientList();
+    renderIndicatorsTable();
+  }
+
+  function updateOverviewCards() {
+    const total = parsedPatients.length;
+    document.getElementById('card-total-pt').textContent = total;
+    document.getElementById('card-month-label').textContent = total ? `查詢月份：${activeMonth}` : '尚無資料';
+    if (!total) {
+      document.getElementById('card-total-days').textContent = "0";
+      document.getElementById('card-avg-los').textContent = "0.0";
+      document.getElementById('card-special-notes').textContent = "0";
+      document.getElementById('card-op-count').textContent = "0";
+      document.getElementById('card-nonop-count').textContent = "0";
+      document.getElementById('card-op-rate').textContent = "手術(Y): 0% | 非手術(N): 0%";
+      return;
+    }
+    const totalDays = Math.round(parsedPatients.reduce((a, b) => a + (parseFloat(b.los) || 0), 0) * 10) / 10;
+    const avg = (totalDays / total).toFixed(2);
+    const dnr = parsedPatients.filter(p => p.dnr && p.dnr !== 'N' && p.dnr !== '無').length;
+    const can = parsedPatients.filter(p => p.cancer && p.cancer !== 'N' && p.cancer !== '無').length;
+    const res = parsedPatients.filter(p => p.restraint && p.restraint !== 'N' && p.restraint !== '無').length;
+    const ops = parsedPatients.filter(p => String(p.surgery).trim().toUpperCase() === 'Y' || p.surgery === '是').length;
+    const nonOps = parsedPatients.filter(p => String(p.surgery).trim().toUpperCase() === 'N' || p.surgery === '否').length;
+    const opRate = ((ops / total) * 100).toFixed(1);
+    const nonOpRate = ((nonOps / total) * 100).toFixed(1);
+
+    document.getElementById('card-total-days').textContent = totalDays;
+    document.getElementById('card-avg-los').textContent = avg;
+    document.getElementById('card-special-notes').textContent = dnr + can + res;
+    document.getElementById('card-special-sub').textContent = `DNR: ${dnr} | 癌症: ${can} | 約束: ${res}`;
+    document.getElementById('card-op-count').textContent = ops;
+    document.getElementById('card-nonop-count').textContent = nonOps;
+    document.getElementById('card-op-rate').textContent = `手術(Y): ${ops}人 (${opRate}%) | 非手術(N): ${nonOps}人 (${nonOpRate}%)`;
+  }
+
+  function populateFilterStatus() {
+    const sel = document.getElementById('filter-status');
+    const statuses = [...new Set(parsedPatients.map(p => p.outStatus).filter(Boolean))];
+    sel.innerHTML = '<option value="ALL">全部轉歸狀態</option>';
+    statuses.forEach(s => {
+      const opt = document.createElement('option');
+      opt.value = s;
+      opt.textContent = s.length > 14 ? s.substring(0, 14) + '...' : s;
+      sel.appendChild(opt);
+    });
+  }
+
+  function renderPatientList() {
+    const container = document.getElementById('patient-accordion-list');
+    const kw = document.getElementById('search-pt').value.trim().toLowerCase();
+    const statusFilter = document.getElementById('filter-status').value;
+    const surgeryFilter = document.getElementById('filter-surgery') ? document.getElementById('filter-surgery').value : 'ALL';
+
+    const filtered = parsedPatients.filter(p => {
+      const matchKw = !kw || p.name.includes(kw) || p.chartNo.includes(kw) || p.diagnosis.toLowerCase().includes(kw) || p.dr.includes(kw) || p.bed.includes(kw);
+      const matchStatus = (statusFilter === 'ALL' || p.outStatus === statusFilter);
+      const isY = (String(p.surgery).trim().toUpperCase() === 'Y' || p.surgery === '是');
+      const isN = (String(p.surgery).trim().toUpperCase() === 'N' || p.surgery === '否');
+      let matchSurgery = true;
+      if (surgeryFilter === 'Y') matchSurgery = isY;
+      else if (surgeryFilter === 'N') matchSurgery = isN;
+      return matchKw && matchStatus && matchSurgery;
+    });
+
+    document.getElementById('patient-count-info').textContent = `共 ${filtered.length} 位病患（全月 ${parsedPatients.length} 位）`;
+
+    if (!filtered.length) {
+      container.innerHTML = `<div style="text-align: center; color: var(--text-muted); padding: 3rem;">無符合搜尋條件之病患資料</div>`;
+      return;
+    }
+
+    container.innerHTML = filtered.map((p, idx) => {
+      const isDnr = p.dnr && p.dnr !== 'N' && p.dnr !== '無';
+      const isCancer = p.cancer && p.cancer !== 'N' && p.cancer !== '無';
+      const isRes = p.restraint && p.restraint !== 'N' && p.restraint !== '無';
+      const isOp = (String(p.surgery).trim().toUpperCase() === 'Y' || p.surgery === '是');
+
+      return `
+        <div class="patient-card" id="pt-card-${idx}">
+          <div class="patient-summary-row" onclick="toggleCard(${idx})">
+            <span class="toggle-status-badge" id="badge-toggle-${idx}">收</span>
+            <span class="bed-badge">${p.bed}</span>
+            <span class="pt-main-info">${p.name} <small style="color:var(--text-muted);">(${p.gender === 'M'?'男':'女'})</small></span>
+            <span class="pt-chart">${p.chartNo}</span>
+            <span class="pt-dept">${p.dept} / ${p.dr || '-'}</span>
+            <span class="pt-diag" title="${p.diagnosis}">${p.diagnosis}</span>
+            <div class="pt-badges">
+              ${isOp ? '<span class="badge badge-info">手術 (Y)</span>' : '<span class="badge" style="background:#f1f5f9;color:#64748b;border:1px solid #cbd5e1;">非手術 (N)</span>'}
+              ${isDnr ? '<span class="badge badge-danger">DNR</span>' : ''}
+              ${isCancer ? '<span class="badge badge-purple">癌</span>' : ''}
+              ${isRes ? '<span class="badge badge-warning">約束</span>' : ''}
+            </div>
+            <span class="pt-los">${p.los} 天</span>
+          </div>
+          <div class="patient-detail-body">
+            <div class="detail-grid">
+              <div class="detail-section">
+                <h5>🗓️ 住院時程與床位資訊</h5>
+                <div class="detail-item"><span>出生日期：</span><span>${p.birthday}</span></div>
+                <div class="detail-item"><span>入院日期：</span><span>${p.admitDate || p.inDate}</span></div>
+                <div class="detail-item"><span>轉入日期/時間：</span><span>${p.inDate} ${p.inTime}</span></div>
+                <div class="detail-item"><span>轉出日期/時間：</span><span>${p.outDate || '-'} ${p.outTime || ''}</span></div>
+                <div class="detail-item"><span>急診天數：</span><span>${p.erDays || '0'} 天</span></div>
+                <div class="detail-item"><span>住院天數(電腦)：</span><span><strong>${p.los}</strong> 天</span></div>
+              </div>
+              <div class="detail-section">
+                <h5>🩺 臨床診斷與手術</h5>
+                <div class="detail-item"><span>完整診斷：</span><span style="text-align:right;">${p.diagnosis}</span></div>
+                <div class="detail-item"><span>手術處置 (Y/N)：</span><span><strong>${isOp ? '是 (Y - 有手術)' : '否 (N - 無手術)'}</strong></span></div>
+                <div class="detail-item"><span>最後手術日：</span><span>${p.lastOpDate || '-'}</span></div>
+                <div class="detail-item"><span>最後術式：</span><span style="text-align:right;">${p.lastOpName || '-'}</span></div>
+              </div>
+              <div class="detail-section">
+                <h5>🔄 轉歸去向與來源</h5>
+                <div class="detail-item"><span>轉入來源：</span><span>${p.source}</span></div>
+                <div class="detail-item"><span>轉出狀態：</span><span style="text-align:right; font-weight:600;">${p.outStatus || '-'}</span></div>
+                <div class="detail-item"><span>主治醫師：</span><span>${p.dr || '-'}</span></div>
+                <div class="detail-item"><span>科別：</span><span>${p.dept}</span></div>
+              </div>
+              <div class="detail-section">
+                <h5>🛡️ 護理安全與註記</h5>
+                <div class="detail-item"><span>DNR 簽署：</span><span>${isDnr ? '<strong style="color:var(--danger)">是</strong>' : '無'}</span></div>
+                <div class="detail-item"><span>癌症註記：</span><span>${isCancer ? '<strong style="color:var(--purple)">是</strong>' : '無'}</span></div>
+                <div class="detail-item"><span>保護性約束：</span><span>${isRes ? '<strong style="color:var(--accent)">使用中</strong>' : '無'}</span></div>
+                <div class="detail-item"><span>護囑時間差：</span><span>${p.diffMin ? p.diffMin + ' 分鐘' : '-'}</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  function toggleCard(idx) {
+    const card = document.getElementById(`pt-card-${idx}`);
+    const badge = document.getElementById(`badge-toggle-${idx}`);
+    if (card) {
+      card.classList.toggle('open');
+      badge.textContent = card.classList.contains('open') ? '合' : '收';
+    }
+  }
+
+  function toggleAllCards(expand) {
+    document.querySelectorAll('.patient-card').forEach((card, idx) => {
+      const badge = document.getElementById(`badge-toggle-${idx}`);
+      if (expand) {
+        card.classList.add('open');
+        if (badge) badge.textContent = '合';
+      } else {
+        card.classList.remove('open');
+        if (badge) badge.textContent = '收';
+      }
+    });
+  }
+
+  function evaluateIndicatorScale(ind, val, customBenchmark) {
+    if (val === null || val === undefined || isNaN(val)) {
+      return { status: 'none', label: '尚未評估', fillPct: 0, cssClass: 'scale-badge-safe', barClass: 'safe' };
+    }
+
+    const bm = customBenchmark || ind.benchmark;
+    let status = 'safe';
+    let label = '達標優良';
+    let fillPct = 50;
+
+    if (bm.includes('~')) {
+      const parts = bm.replace(/[%天‰]/g, '').split('~').map(p => parseFloat(p.trim()));
+      const min = parts[0] || 75;
+      const max = parts[1] || 85;
+      fillPct = Math.min(100, Math.max(10, Math.round(val)));
+      if (val >= min && val <= max) { status = 'safe'; label = '常態達標'; }
+      else if (val >= min * 0.85 && val <= max * 1.08) { status = 'warn'; label = '邊界預警'; }
+      else { status = 'danger'; label = val > max ? '過載預警' : '數值偏低'; }
+    } else if (bm === '0' || bm === '0%') {
+      if (val === 0) { status = 'safe'; label = '零事件達標'; fillPct = 100; }
+      else { status = 'danger'; label = '異常發生'; fillPct = 100; }
+    } else {
+      const numMatch = bm.match(/([0-9.]+)/);
+      const limit = numMatch ? parseFloat(numMatch[1]) : 1.0;
+      fillPct = Math.min(100, Math.round((val / (limit * 2 || 1)) * 100));
+      if (val <= limit) { status = 'safe'; label = '達標安全'; }
+      else if (val <= limit * 1.3) { status = 'warn'; label = '接近閾值'; }
+      else { status = 'danger'; label = '超出閾值'; }
+    }
+
+    const cssClass = status === 'safe' ? 'scale-badge-safe' : (status === 'warn' ? 'scale-badge-warn' : 'scale-badge-danger');
+    const barClass = status === 'safe' ? 'safe' : (status === 'warn' ? 'warn' : 'danger');
+
+    return { status, label, fillPct, cssClass, barClass };
+  }
+
+  function updateVisualGauges(m, indStore) {
+    const getVal = (id) => (indStore[id] && indStore[id][m] && indStore[id][m].val !== null) ? indStore[id][m].val : null;
+
+    const occVal = getVal('los_rate');
+    const avgLos = getVal('avg_los');
+    const barOcc = document.getElementById('gauge-bar-occupancy');
+    const txtOcc = document.getElementById('gauge-text-occupancy');
+    const badgeOcc = document.getElementById('gauge-badge-occupancy');
+
+    if (occVal !== null) {
+      txtOcc.textContent = occVal.toFixed(1) + '%';
+      const offset = Math.max(0, 220 - (220 * Math.min(100, occVal) / 100));
+      barOcc.style.strokeDashoffset = offset;
+      if (occVal >= 75 && occVal <= 92) {
+        barOcc.style.stroke = '#10b981';
+        badgeOcc.className = 'gauge-status-badge scale-badge-safe';
+        badgeOcc.textContent = `運作優良 (平均住院日: ${avgLos ? avgLos.toFixed(1) : '-'}天)`;
+      } else {
+        barOcc.style.stroke = '#f59e0b';
+        badgeOcc.className = 'gauge-status-badge scale-badge-warn';
+        badgeOcc.textContent = `偏離常態 (平均住院日: ${avgLos ? avgLos.toFixed(1) : '-'}天)`;
+      }
+    } else {
+      txtOcc.textContent = '0%';
+      barOcc.style.strokeDashoffset = 220;
+      badgeOcc.textContent = '尚無數據';
+    }
+
+    const fall = getVal('fall_rate');
+    const pu = getVal('pu_rate');
+    const med = getVal('med_error_rate');
+    const preop = getVal('preop_error_rate');
+    const barSafety = document.getElementById('gauge-bar-safety');
+    const txtSafety = document.getElementById('gauge-text-safety');
+    const badgeSafety = document.getElementById('gauge-badge-safety');
+
+    let adverseCount = 0;
+    if (fall && fall > 0.05) adverseCount++;
+    if (pu && pu > 0) adverseCount++;
+    if (med && med > 0) adverseCount++;
+    if (preop && preop > 0.8) adverseCount++;
+
+    if (fall !== null || pu !== null || med !== null || preop !== null) {
+      const safetyScore = Math.max(60, 100 - adverseCount * 20);
+      txtSafety.textContent = safetyScore + '分';
+      barSafety.style.strokeDashoffset = 220 - (220 * safetyScore / 100);
+      if (adverseCount === 0) {
+        barSafety.style.stroke = '#10b981';
+        badgeSafety.className = 'gauge-status-badge scale-badge-safe';
+        badgeSafety.textContent = '安全零容忍達標 (無異常)';
+      } else {
+        barSafety.style.stroke = '#ef4444';
+        badgeSafety.className = 'gauge-status-badge scale-badge-danger';
+        badgeSafety.textContent = `發生 ${adverseCount} 項注意/超標事件`;
+      }
+    } else {
+      txtSafety.textContent = '100分';
+      barSafety.style.strokeDashoffset = 0;
+      badgeSafety.textContent = '常態安全防護中';
+    }
+
+    const cvcSlip = getVal('cvc_slip');
+    const folSlip = getVal('foley_slip');
+    const ngSlip = getVal('ng_slip');
+    const clabsi = getVal('clabsi_rate');
+    const cauti = getVal('cauti_rate');
+    const barDevice = document.getElementById('gauge-bar-device');
+    const txtDevice = document.getElementById('gauge-text-device');
+    const badgeDevice = document.getElementById('gauge-badge-device');
+
+    let deviceIncidents = (cvcSlip || 0) + (folSlip || 0) + (ngSlip || 0) + (clabsi || 0) + (cauti || 0);
+    if (deviceIncidents === 0) {
+      txtDevice.textContent = '100%';
+      barDevice.style.stroke = '#0284c7';
+      barDevice.style.strokeDashoffset = 0;
+      badgeDevice.className = 'gauge-status-badge scale-badge-safe';
+      badgeDevice.textContent = '管路零滑脫 / 零感染';
+    } else {
+      txtDevice.textContent = '注意';
+      barDevice.style.stroke = '#f59e0b';
+      barDevice.style.strokeDashoffset = 60;
+      badgeDevice.className = 'gauge-status-badge scale-badge-warn';
+      badgeDevice.textContent = '監測到管路相關事件';
+    }
+  }
+
+  function renderIndicatorsTable() {
+    const monthSel = document.getElementById('select-ind-month').value;
+    const thead = document.getElementById('ind-table-thead');
+    const tbody = document.getElementById('ind-table-tbody');
+    let indStore = getStoredIndicators();
+    const customBenchmarks = getCustomBenchmarks();
+    const isAdmin = (currentUserRole === 'admin');
+
+    const curMNum = parseInt(activeMonth.slice(-2), 10);
+    if (!isNaN(curMNum) && parsedPatients && parsedPatients.length) {
+      const opCount = parsedPatients.filter(p => String(p.surgery).trim().toUpperCase() === 'Y' || p.surgery === '是').length;
+      if (!indStore['preop_error_rate']) indStore['preop_error_rate'] = {};
+      if (!indStore['preop_error_rate'][curMNum]) indStore['preop_error_rate'][curMNum] = { num: null, den: null, val: null };
+      if (!indStore['preop_error_rate'][curMNum].den) {
+        indStore['preop_error_rate'][curMNum].den = opCount;
+        saveStoredIndicators(indStore);
+      }
+    }
+
+    if (monthSel === 'ALL') {
+      thead.innerHTML = `
+        <tr>
+          <th>類別</th>
+          <th>指標名稱</th>
+          <th>品管閾值 (${isAdmin ? '可自訂' : '標準'})</th>
+          <th>單位</th>
+          ${[1,2,3,4,5,6,7,8,9,10,11,12].map(m => `<th>${m}月</th>`).join('')}
+        </tr>
+      `;
+      tbody.innerHTML = getAllIndicators().map(ind => {
+        const itemObj = indStore[ind.id] || {};
+        const bm = customBenchmarks[ind.id] || ind.benchmark;
+        return `
+          <tr>
+            <td><span class="badge badge-info">${ind.cat}</span></td>
+            <td><strong>${ind.name}</strong></td>
+            <td style="color:var(--text-muted); font-size:0.8rem;">${bm}</td>
+            <td>${ind.unit}</td>
+            ${[1,2,3,4,5,6,7,8,9,10,11,12].map(m => {
+              const data = itemObj[m];
+              const val = data && data.val !== null && data.val !== undefined ? data.val : null;
+              let disp = '-';
+              let badgeColor = '';
+              if (val !== null) {
+                disp = ind.unit.includes('分比') ? val.toFixed(2) + (ind.unit === '千分比' ? '‰' : '%') : val.toFixed(2);
+                const evalResult = evaluateIndicatorScale(ind, val, bm);
+                badgeColor = evalResult.status === 'danger' ? 'color:#dc2626; font-weight:700;' : (evalResult.status === 'warn' ? 'color:#d97706;' : 'color:#15803d;');
+              }
+              return `<td style="${badgeColor}">${disp}</td>`;
+            }).join('')}
+          </tr>
+        `;
+      }).join('');
+    } else {
+      const m = parseInt(monthSel, 10);
+      updateVisualGauges(m, indStore);
+
+      thead.innerHTML = `
+        <tr>
+          <th>分類</th>
+          <th>指標名稱</th>
+          <th style="min-width:120px;">品管目標閾值 ${isAdmin ? '<small style="color:var(--primary);">(可編輯)</small>' : ''}</th>
+          <th style="min-width:130px;">當月分子</th>
+          <th style="min-width:130px;">當月分母</th>
+          <th>當月指標數據</th>
+          <th style="min-width:185px;">視覺化品質量表尺 (Status Meter)</th>
+          <th>來源/操作</th>
+        </tr>
+      `;
+
+      tbody.innerHTML = getAllIndicators().map(ind => {
+        let data = indStore[ind.id] && indStore[ind.id][m] ? indStore[ind.id][m] : { num: null, den: null, val: null };
+        
+        if (ind.id === 'preop_error_rate' && (data.den === null || data.den === undefined || data.den === '') && m === curMNum && parsedPatients.length) {
+          data.den = parsedPatients.filter(p => String(p.surgery).trim().toUpperCase() === 'Y' || p.surgery === '是').length;
+        }
+
+        const numVal = data.num !== null && data.num !== undefined ? data.num : '';
+        const denVal = data.den !== null && data.den !== undefined ? data.den : '';
+        
+        let dispVal = '-';
+        if (data.val !== null && data.val !== undefined) {
+          dispVal = ind.unit.includes('分比') ? data.val.toFixed(2) + (ind.unit === '千分比' ? ' ‰' : ' %') : data.val.toFixed(2);
+        }
+
+        const isAutoNum = !!ind.autoNum;
+        const isAutoDen = !!ind.autoDen;
+        const currentBm = customBenchmarks[ind.id] || ind.benchmark;
+        const evalScale = evaluateIndicatorScale(ind, data.val, currentBm);
+
+        const benchmarkHtml = isAdmin
+          ? `<input type="text" class="input-threshold" value="${currentBm}" 
+               title="點擊可自行修改目標閾值門檻" 
+               onchange="saveCustomBenchmark('${ind.id}', this.value)">`
+          : `<span style="font-size:0.85rem; color:#475569; font-weight:600; padding:3px 6px;">${currentBm}</span>`;
+
+        const numInputHtml = `
+          <div style="display:inline-flex; align-items:center;">
+            <input type="number" step="any" 
+              class="input-num ${isAutoNum ? 'auto-calc' : ''} ${!isAdmin ? 'admin-editable' : ''}" 
+              value="${numVal}" 
+              placeholder="${isAdmin ? '自填分子' : '-'}" 
+              ${!isAdmin ? 'readonly tabindex="-1"' : ''}
+              title="${!isAdmin ? '唯讀檢視' : (isAutoNum ? '系統從報表自動計算' : '請手動輸入')}" 
+              ${isAdmin ? `onchange="onIndicatorInputChange('${ind.id}', ${m}, 'num', this.value)"` : ''}>
+            ${isAutoNum ? '<span title="自動自報表擷取" style="font-size:0.75rem; color:#15803d; margin-left:3px;">⚡</span>' : ''}
+          </div>
+        `;
+
+        const denInputHtml = `
+          <div style="display:inline-flex; align-items:center;">
+            <input type="number" step="any" 
+              class="input-num ${isAutoDen ? 'auto-calc' : ''} ${!isAdmin ? 'admin-editable' : ''}" 
+              value="${denVal}" 
+              placeholder="${isAdmin ? '自填分母' : '-'}" 
+              ${!isAdmin ? 'readonly tabindex="-1"' : ''}
+              title="${!isAdmin ? '唯讀檢視' : (isAutoDen ? '系統從報表自動計算' : '請手動輸入')}" 
+              ${isAdmin ? `onchange="onIndicatorInputChange('${ind.id}', ${m}, 'den', this.value)"` : ''}>
+            ${isAutoDen ? '<span title="自動自報表擷取" style="font-size:0.75rem; color:#15803d; margin-left:3px;">⚡</span>' : ''}
+          </div>
+        `;
+
+        const deleteBtnHtml = (ind.isCustom && isAdmin)
+          ? `<button class="btn-action" style="padding:2px 6px;margin-left:4px;color:#ef4444;border-color:#fca5a5;font-size:0.75rem;" 
+               title="刪除此自訂指標" onclick="deleteCustomIndicator('${ind.id}')">🗑️</button>`
+          : '';
+
+        return `
+          <tr>
+            <td><span class="badge badge-info">${ind.cat}</span></td>
+            <td><strong>${ind.name}</strong></td>
+            <td>${benchmarkHtml}</td>
+            <td>${numInputHtml}</td>
+            <td>${denInputHtml}</td>
+            <td><strong id="val-display-${ind.id}" style="color: var(--primary); font-size: 1rem;">${dispVal}</strong></td>
+            
+            <td>
+              <div class="visual-scale-wrapper" id="scale-box-${ind.id}">
+                <div class="scale-header">
+                  <span class="badge ${evalScale.cssClass}" style="font-size:0.72rem; padding:1px 6px;">${evalScale.label}</span>
+                  <span class="scale-target-text">${data.val !== null ? dispVal : '無數據'}</span>
+                </div>
+                <div class="scale-track">
+                  <div class="scale-bar ${evalScale.barClass}" style="width: ${evalScale.fillPct}%;"></div>
+                </div>
+              </div>
+            </td>
+
+            <td>
+              ${ind.isCustom ? '<span class="badge" style="background:#e0e7ff;color:#3730a3;border:1px solid #c7d2fe;margin-right:4px;">自訂</span>' : ''}
+              ${(isAutoNum || isAutoDen) ? '<span class="badge badge-auto">⚡ 自動</span>' : '<span class="badge badge-manual">✏️ 手動</span>'}
+              ${deleteBtnHtml}
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+  }
+
+  function onIndicatorInputChange(indId, m, field, rawValue) {
+    if (currentUserRole !== 'admin') return;
+    const indStore = getStoredIndicators();
+    if (!indStore[indId]) indStore[indId] = {};
+    if (!indStore[indId][m]) indStore[indId][m] = { num: null, den: null, val: null };
+
+    const parsed = rawValue.trim() === '' ? null : parseFloat(rawValue);
+    indStore[indId][m][field] = parsed;
+
+    const indDef = getAllIndicators().find(i => i.id === indId);
+    const num = indStore[indId][m].num;
+    const den = indStore[indId][m].den;
+
+    if (num !== null && den !== null && den > 0 && indDef) {
+      indStore[indId][m].val = (num / den) * indDef.factor;
+    } else {
+      indStore[indId][m].val = null;
+    }
+
+    saveStoredIndicators(indStore);
+    renderIndicatorsTable();
+  }
+
+  function renderYearlyTable() {
+    const tbody = document.getElementById('yearly-summary-tbody');
+    const months = getSavedMonths();
+    if (!months.length) {
+      tbody.innerHTML = `<tr><td colspan="12" style="text-align: center; color: var(--text-muted); padding: 2rem;">無歷月存檔資料</td></tr>`;
+      return;
+    }
+    tbody.innerHTML = months.map(m => {
+      const raw = localStorage.getItem(getStorageKey(`summary_${m}`));
+      const s = raw ? JSON.parse(raw) : {};
+      return `
+        <tr>
+          <td><strong>${m}</strong></td>
+          <td>${s.total || 0} 人</td>
+          <td>${s.totalDays || 0} 天</td>
+          <td>${s.avgLos || 0} 天</td>
+          <td>${s.erCount || 0}</td>
+          <td>${s.icuCount || 0}</td>
+          <td><strong style="color:var(--primary);">${s.opCount || 0}</strong></td>
+          <td>${s.nonOpCount || 0}</td>
+          <td>${s.dnrCount || 0}</td>
+          <td>${s.cancerCount || 0}</td>
+          <td>${s.restraintCount || 0}</td>
+          <td>${s.over21Count || 0}</td>
+        </tr>
+      `;
+    }).join('');
+  }
+
+  function exportCurrentPatients() {
+    if (!parsedPatients.length) { alert('無可匯出資料！'); return; }
+    const ws = XLSX.utils.json_to_sheet(parsedPatients);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "病患名單");
+    XLSX.writeFile(wb, `義大醫院_${currentUnitName}_${activeMonth}_病患清單.xlsx`);
+  }
+
+  function exportIndicatorsExcel() {
+    const indStore = getStoredIndicators();
+    const customBenchmarks = getCustomBenchmarks();
+    const rows = [];
+    getAllIndicators().forEach(ind => {
+      const currentBm = customBenchmarks[ind.id] || ind.benchmark;
+      const r = { "分類": ind.cat, "指標名稱": ind.name, "品管目標閾值": currentBm, "單位": ind.unit, "計算公式": ind.formula };
+      for (let m = 1; m <= 12; m++) {
+        const item = indStore[ind.id] && indStore[ind.id][m] ? indStore[ind.id][m] : null;
+        r[`${m}月_分子`] = item && item.num !== null ? item.num : '';
+        r[`${m}月_分母`] = item && item.den !== null ? item.den : '';
+        r[`${m}月_指標值`] = item && item.val !== null ? item.val : '';
+      }
+      rows.push(r);
+    });
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "2026護理品質監控指標");
+    XLSX.writeFile(wb, `義大醫院_${currentUnitName}_護理品質監控指標一覽表.xlsx`);
+  }
+
+  function exportYearlyData() {
+    const months = getSavedMonths();
+    if (!months.length) { alert('無年度歷史資料！'); return; }
+    let all = [];
+    months.forEach(m => {
+      const raw = localStorage.getItem(getStorageKey(`patients_${m}`));
+      if (raw) all = all.concat(JSON.parse(raw));
+    });
+    const ws = XLSX.utils.json_to_sheet(all);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "年度全宗病患");
+    XLSX.writeFile(wb, `義大醫院_${currentUnitName}_年度病房全宗明細.xlsx`);
+  }
+
+  function downloadDatabaseBackup() {
+    if (currentUserRole !== 'admin') { alert('無權限操作！'); return; }
+    const backupObj = {
+      unitId: currentUnitId,
+      unitName: currentUnitName,
+      exportTime: new Date().toISOString(),
+      months: getSavedMonths(),
+      indicators: getStoredIndicators(),
+      customBenchmarks: getCustomBenchmarks(),
+      patientsData: {}
+    };
+    backupObj.months.forEach(m => {
+      const pts = localStorage.getItem(getStorageKey(`patients_${m}`));
+      const sm = localStorage.getItem(getStorageKey(`summary_${m}`));
+      backupObj.patientsData[m] = {
+        patients: pts ? JSON.parse(pts) : [],
+        summary: sm ? JSON.parse(sm) : {}
+      };
+    });
+
+    const blob = new Blob([JSON.stringify(backupObj, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `義大醫院_${currentUnitName}_病房系統全量備份_${new Date().toLocaleDateString('zh-TW').replace(/\//g,'-')}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function restoreDatabaseBackup(event) {
+    if (currentUserRole !== 'admin') { alert('無權限操作！'); return; }
+    const file = event.target.files[0];
+    if (!file) return;
+    restoreDatabaseFromJson(file);
+  }
+
+  function restoreDatabaseFromJson(file) {
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      try {
+        const backup = JSON.parse(e.target.result);
+        if (!backup.months || !backup.indicators) throw new Error('不合法的備份檔案格式！');
+        saveMonths(backup.months);
+        saveStoredIndicators(backup.indicators);
+        if (backup.customBenchmarks) {
+          localStorage.setItem(getStorageKey('custom_benchmarks'), JSON.stringify(backup.customBenchmarks));
+        }
+        for (const m in backup.patientsData) {
+          localStorage.setItem(getStorageKey(`patients_${m}`), JSON.stringify(backup.patientsData[m].patients));
+          localStorage.setItem(getStorageKey(`summary_${m}`), JSON.stringify(backup.patientsData[m].summary));
+        }
+        alert('✅ 資料庫還原成功！');
+        loadData();
+      } catch (err) {
+        alert('❌ 還原失敗：' + err.message);
+      }
+    };
+    reader.readAsText(file);
+  }
+
+  async function uploadAllDataToSupabase() {
+    if (currentUserRole !== 'admin') {
+      alert("僅管理者可執行雲端同步！");
+      return;
+    }
+    if (!supabaseClient) {
+      alert("尚未正確載入 Supabase SDK！請確認網路連線。");
+      return;
+    }
+    if (!currentUnitId) {
+      alert("請先選擇所屬護理站/單位！");
+      return;
+    }
+
+    const statusEl = document.getElementById("supabase-sync-status");
+    statusEl.style.color = "var(--primary)";
+    statusEl.textContent = "⏳ 正在打包並同步至 Supabase 雲端資料庫...";
+
+    try {
+      await supabaseClient.from("nursing_units").upsert({
+        unit_id: currentUnitId,
+        unit_name: currentUnitName,
+        unit_group: "全院護理部單位"
+      }, { onConflict: "unit_id" });
+
+      const months = getSavedMonths();
+      const indStore = getStoredIndicators();
+      const customBenchmarks = getCustomBenchmarks();
+
+      for (const m of months) {
+        statusEl.textContent = `⏳ 正在同步 ${m} 月份病患與指標數據...`;
+
+        const rawSummary = localStorage.getItem(getStorageKey(`summary_${m}`));
+        if (rawSummary) {
+          const s = JSON.parse(rawSummary);
+          await supabaseClient.from("ward_monthly_summaries").upsert({
+            unit_id: currentUnitId,
+            query_month: m,
+            total_patients: s.total || 0,
+            total_days: s.totalDays || 0,
+            avg_los: parseFloat(s.avgLos) || 0,
+            er_count: s.erCount || 0,
+            icu_count: s.icuCount || 0,
+            op_count: s.opCount || 0,
+            non_op_count: s.nonOpCount || 0,
+            dnr_count: s.dnrCount || 0,
+            cancer_count: s.cancerCount || 0,
+            restraint_count: s.restraintCount || 0,
+            over21_count: s.over21Count || 0
+          }, { onConflict: "unit_id,query_month" });
+        }
+
+        const rawPts = localStorage.getItem(getStorageKey(`patients_${m}`));
+        if (rawPts) {
+          const pts = JSON.parse(rawPts);
+          if (pts.length > 0) {
+            await supabaseClient.from("ward_patients")
+              .delete()
+              .eq("unit_id", currentUnitId)
+              .eq("query_month", m);
+
+            const ptRecords = pts.map(p => ({
+              unit_id: currentUnitId,
+              query_month: m,
+              bed: p.bed || "",
+              chart_no: p.chartNo || "",
+              patient_name: p.name || "",
+              gender: p.gender || "",
+              birthday: p.birthday || "",
+              diagnosis: p.diagnosis || "",
+              dept: p.dept || "",
+              attending_dr: p.dr || "",
+              in_date: p.inDate || "",
+              in_time: p.inTime || "",
+              source: p.source || "",
+              out_date: p.outDate || "",
+              out_time: p.outTime || "",
+              out_status: p.outStatus || "",
+              los: parseFloat(p.los) || 0,
+              surgery: String(p.surgery).toUpperCase() === "Y" ? "Y" : "N",
+              last_op_date: p.lastOpDate || "",
+              last_op_name: p.lastOpName || "",
+              dnr: p.dnr || "",
+              cancer: p.cancer || "",
+              restraint: p.restraint || "",
+              er_days: p.erDays || "",
+              admit_date: p.admitDate || ""
+            }));
+
+            for (let i = 0; i < ptRecords.length; i += 500) {
+              const chunk = ptRecords.slice(i, i + 500);
+              const { error: ptErr } = await supabaseClient.from("ward_patients").insert(chunk);
+              if (ptErr) throw ptErr;
+            }
+          }
+        }
+
+        const mNum = parseInt(m.slice(-2), 10);
+        if (!isNaN(mNum)) {
+          const rawTube = localStorage.getItem(getStorageKey(`tubes_${mNum}`));
+          if (rawTube) {
+            const t = JSON.parse(rawTube);
+            await supabaseClient.from("ward_tube_stats").upsert({
+              unit_id: currentUnitId,
+              year_month: m,
+              month_num: mNum,
+              cvc_days: t.cvc || 0,
+              foley_days: t.foley || 0,
+              ng_days: t.ng || 0,
+              trach_days: t.trach || 0,
+              endo_days: t.endo || 0,
+              pigtail_days: t.pigtail || 0,
+              chest_days: t.chesttube || 0,
+              iv_days: t.ivCath || 0
+            }, { onConflict: "unit_id,year_month" });
+          }
+        }
+      }
+
+      statusEl.textContent = "⏳ 正在同步品質監控指標運算矩陣...";
+      const allIndicators = getAllIndicators();
+      const indRecords = [];
+
+      for (const ind of allIndicators) {
+        const bm = customBenchmarks[ind.id] || ind.benchmark;
+        for (let m = 1; m <= 12; m++) {
+          const item = indStore[ind.id] && indStore[ind.id][m] ? indStore[ind.id][m] : null;
+          if (item && (item.num !== null || item.den !== null || item.val !== null)) {
+            indRecords.push({
+              unit_id: currentUnitId,
+              indicator_id: ind.id,
+              indicator_name: ind.name,
+              category: ind.cat,
+              unit_type: ind.unit,
+              month_num: m,
+              numerator: item.num,
+              denominator: item.den,
+              computed_val: item.val,
+              benchmark: bm,
+              is_custom: ind.isCustom || false
+            });
+          }
+        }
+      }
+
+      if (indRecords.length > 0) {
+        for (let i = 0; i < indRecords.length; i += 200) {
+          const chunk = indRecords.slice(i, i + 200);
+          const { error: indErr } = await supabaseClient.from("ward_indicator_records").upsert(
+            chunk,
+            { onConflict: "unit_id,indicator_id,month_num" }
+          );
+          if (indErr) throw indErr;
+        }
+      }
+
+      statusEl.style.color = "var(--success)";
+      statusEl.textContent = `✅ 同步成功！全量資料已安全推送到 Supabase。`;
+      alert("🎉 全量資料庫同步完成！");
+    } catch (err) {
+      statusEl.style.color = "var(--danger)";
+      statusEl.textContent = `❌ 同步失敗：${err.message}`;
+      console.error(err);
+    }
+  }
+
+  // 圖表分析模組
+  const chartInstances = {};
+
+  function safeDestroyChart(chartKey) {
+    if (chartInstances[chartKey]) {
+      chartInstances[chartKey].destroy();
+      delete chartInstances[chartKey];
+    }
+  }
+
+  function renderChartsView() {
+    populateSingleIndicatorDropdown();
+    updateSingleIndicatorChart();
+    renderLosTrendChart();
+    renderTubeDaysChart();
+    renderSafetyEventsChart();
+    renderSurgeryPieChart();
+  }
+
+  function populateSingleIndicatorDropdown() {
+    const sel = document.getElementById('chart-select-single-ind');
+    if (!sel || sel.options.length > 0) return;
+    sel.innerHTML = '';
+    getAllIndicators().forEach((ind, idx) => {
+      const opt = document.createElement('option');
+      opt.value = ind.id;
+      opt.textContent = `${idx + 1}. [${ind.cat}] ${ind.name}`;
+      if (ind.id === 'preop_error_rate') opt.selected = true;
+      sel.appendChild(opt);
+    });
+  }
+
+  function downloadChartCanvas(canvasId, defaultName) {
+    const canvas = document.getElementById(canvasId);
+    if (!canvas) { alert('找不到圖表畫布！'); return; }
+
+    const tempCanvas = document.createElement('canvas');
+    tempCanvas.width = canvas.width;
+    tempCanvas.height = canvas.height;
+    const ctx = tempCanvas.getContext('2d');
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
+    ctx.drawImage(canvas, 0, 0);
+
+    const link = document.createElement('a');
+    link.download = `義大醫院_${currentUnitName}_${defaultName}_${activeMonth}.png`;
+    link.href = tempCanvas.toDataURL('image/png', 1.0);
+    link.click();
+  }
+
+  function updateSingleIndicatorChart() {
+    const selIndId = document.getElementById('chart-select-single-ind').value || 'preop_error_rate';
+    const chartType = document.getElementById('chart-select-type').value || 'line';
+    const indDef = getAllIndicators().find(i => i.id === selIndId) || getAllIndicators()[0];
+    const indStore = getStoredIndicators();
+    const customBenchmarks = getCustomBenchmarks();
+    const currentBm = customBenchmarks[indDef.id] || indDef.benchmark;
+
+    document.getElementById('single-chart-title').textContent = `📈 【${indDef.name}】1~12 月走勢與品管目標閾值對比`;
+    document.getElementById('single-chart-desc').textContent = `分類：${indDef.cat} | 單位：${indDef.unit} | 品管門檻：${currentBm} | 計算公式：${indDef.formula}`;
+
+    const monthsLabels = ['1月','2月','3月','4月','5月','6月','7月','8月','9月','10月','11月','12月'];
+    const itemData = indStore[indDef.id] || {};
+    const values = [];
+    for (let m = 1; m <= 12; m++) {
+      const v = itemData[m] ? itemData[m].val : null;
+      values.push(v !== null && v !== undefined ? parseFloat(v.toFixed(2)) : null);
+    }
+
+    let benchmarkNum = null;
+    const numMatch = currentBm.match(/([0-9.]+)/);
+    if (numMatch) benchmarkNum = parseFloat(numMatch[1]);
+    const thresholdData = benchmarkNum !== null ? Array(12).fill(benchmarkNum) : [];
+
+    const datasets = [
+      {
+        type: chartType,
+        label: `${indDef.name} 實際數據 (${indDef.unit})`,
+        data: values,
+        borderColor: '#006666',
+        backgroundColor: chartType === 'bar' ? 'rgba(0, 102, 102, 0.7)' : 'rgba(0, 102, 102, 0.1)',
+        borderWidth: 2.5,
+        fill: chartType === 'line',
+        tension: 0.3,
+        pointBackgroundColor: '#006666',
+        pointRadius: 5
+      }
+    ];
+
+    if (benchmarkNum !== null) {
+      datasets.push({
+        type: 'line',
+        label: `品管目標閾值線 (${currentBm})`,
+        data: thresholdData,
+        borderColor: '#ef4444',
+        borderWidth: 2,
+        borderDash: [6, 6],
+        pointRadius: 0,
+        fill: false
+      });
+    }
+
+    const ctx = document.getElementById('canvas-single-ind').getContext('2d');
+    safeDestroyChart('singleInd');
+
+    chartInstances.singleInd = new Chart(ctx, {
+      data: { labels: monthsLabels, datasets: datasets },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { position: 'top' },
+          tooltip: {
+            callbacks: {
+              label: (context) => `${context.dataset.label}: ${context.parsed.y !== null ? context.parsed.y : '無資料'} ${indDef.unit}`
+            }
+          }
+        },
+        scales: {
+          y: { beginAtZero: true, title: { display: true, text: indDef.unit, color: '#64748b' }, grid: { color: '#f1f5f9' } },
+          x: { grid: { display: false } }
+        }
+      }
+    });
+  }
+
+  function renderLosTrendChart() {
+    const monthsLabels = ['1月','2月','3月','4月','5月','6月','7月','8月','9月','10月','11月','12月'];
+    const indStore = getStoredIndicators();
+
+    const occData = [];
+    const losData = [];
+    for (let m = 1; m <= 12; m++) {
+      const occ = indStore['los_rate'] && indStore['los_rate'][m] ? indStore['los_rate'][m].val : null;
+      const los = indStore['avg_los'] && indStore['avg_los'][m] ? indStore['avg_los'][m].val : null;
+      occData.push(occ !== null && occ !== undefined ? parseFloat(occ.toFixed(1)) : null);
+      losData.push(los !== null && los !== undefined ? parseFloat(los.toFixed(2)) : null);
+    }
+
+    const ctx = document.getElementById('canvas-los-trend').getContext('2d');
+    safeDestroyChart('losTrend');
+
+    chartInstances.losTrend = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: monthsLabels,
+        datasets: [
+          {
+            label: '佔床率 (%)',
+            data: occData,
+            borderColor: '#0284c7',
+            backgroundColor: 'rgba(2, 132, 199, 0.1)',
+            yAxisID: 'yOcc',
+            tension: 0.3,
+            fill: true,
+            pointRadius: 4
+          },
+          {
+            label: '平均住院日數 (天)',
+            data: losData,
+            borderColor: '#d97706',
+            backgroundColor: 'transparent',
+            yAxisID: 'yLos',
+            tension: 0.3,
+            borderWidth: 2.5,
+            pointRadius: 4
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { position: 'top' } },
+        scales: {
+          yOcc: { type: 'linear', position: 'left', beginAtZero: true, max: 100, title: { display: true, text: '佔床率 (%)', color: '#0284c7' }, grid: { color: '#f1f5f9' } },
+          yLos: { type: 'linear', position: 'right', beginAtZero: true, title: { display: true, text: '平均住院天數 (天)', color: '#d97706' }, grid: { display: false } },
+          x: { grid: { display: false } }
+        }
+      }
+    });
+  }
+
+  function renderTubeDaysChart() {
+    const monthsLabels = ['1月','2月','3月','4月','5月','6月','7月','8月','9月','10月','11月','12月'];
+    const indStore = getStoredIndicators();
+
+    const cvcDays = [];
+    const foleyDays = [];
+    const ngDays = [];
+
+    for (let m = 1; m <= 12; m++) {
+      const tubeCache = localStorage.getItem(getStorageKey(`tubes_${m}`));
+      if (tubeCache) {
+        const parsed = JSON.parse(tubeCache);
+        cvcDays.push(parsed.cvc || 0);
+        foleyDays.push(parsed.foley || 0);
+        ngDays.push(parsed.ng || 0);
+      } else {
+        const c = indStore['cvc_use_rate'] && indStore['cvc_use_rate'][m] ? indStore['cvc_use_rate'][m].num : null;
+        const f = indStore['foley_use_rate'] && indStore['foley_use_rate'][m] ? indStore['foley_use_rate'][m].num : null;
+        const n = indStore['ng_use_rate'] && indStore['ng_use_rate'][m] ? indStore['ng_use_rate'][m].num : null;
+        cvcDays.push(c !== null ? c : 0);
+        foleyDays.push(f !== null ? f : 0);
+        ngDays.push(n !== null ? n : 0);
+      }
+    }
+
+    const ctx = document.getElementById('canvas-tube-days').getContext('2d');
+    safeDestroyChart('tubeDays');
+
+    chartInstances.tubeDays = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: monthsLabels,
+        datasets: [
+          { label: '中心導管 CVC (人日)', data: cvcDays, backgroundColor: '#0284c7' },
+          { label: '留置導尿管 Foley (人日)', data: foleyDays, backgroundColor: '#10b981' },
+          { label: '鼻胃管 NG (人日)', data: ngDays, backgroundColor: '#f59e0b' }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { position: 'top' } },
+        scales: {
+          y: { beginAtZero: true, title: { display: true, text: '累計使用人日', color: '#64748b' }, grid: { color: '#f1f5f9' } },
+          x: { grid: { display: false } }
+        }
+      }
+    });
+  }
+
+  function renderSafetyEventsChart() {
+    const indStore = getStoredIndicators();
+    const curM = parseInt(activeMonth.slice(-2), 10) || 9;
+
+    const safetyItems = [
+      { id: 'fall_rate', name: '跌倒事件' },
+      { id: 'pu_rate', name: '壓瘡事件' },
+      { id: 'med_error_rate', name: '給藥異常' },
+      { id: 'preop_error_rate', name: '術前準備不完整' },
+      { id: 'specimen_reject', name: '檢體退件' },
+      { id: 'to_icu_rate', name: '轉入ICU人次' }
+    ];
+
+    const labels = safetyItems.map(s => s.name);
+    const dataVals = safetyItems.map(s => {
+      const item = indStore[s.id] && indStore[s.id][curM] ? indStore[s.id][curM] : null;
+      return item && item.num !== null ? item.num : 0;
+    });
+
+    const ctx = document.getElementById('canvas-safety-events').getContext('2d');
+    safeDestroyChart('safetyEvents');
+
+    chartInstances.safetyEvents = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: labels,
+        datasets: [{
+          label: `${curM}月份 發生人次/件數`,
+          data: dataVals,
+          backgroundColor: [
+            'rgba(239, 68, 68, 0.75)',
+            'rgba(245, 158, 11, 0.75)',
+            'rgba(139, 92, 246, 0.75)',
+            'rgba(217, 119, 6, 0.75)',
+            'rgba(2, 132, 199, 0.75)',
+            'rgba(16, 185, 129, 0.75)'
+          ],
+          borderColor: ['#ef4444', '#f59e0b', '#8b5cf6', '#d97706', '#0284c7', '#10b981'],
+          borderWidth: 1.5
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: (ctx) => `發生人次/件數: ${ctx.parsed.y} 件/人`
+            }
+          }
+        },
+        scales: {
+          y: { beginAtZero: true, ticks: { stepSize: 1 }, title: { display: true, text: '件數 / 人次', color: '#64748b' } },
+          x: { grid: { display: false } }
+        }
+      }
+    });
+  }
+
+  function renderSurgeryPieChart() {
+    let opY = 0;
+    let opN = 0;
+
+    if (parsedPatients && parsedPatients.length) {
+      parsedPatients.forEach(p => {
+        const isY = String(p.surgery).trim().toUpperCase() === 'Y' || p.surgery === '是';
+        if (isY) opY++; else opN++;
+      });
+    }
+
+    const ctx = document.getElementById('canvas-surgery-pie').getContext('2d');
+    safeDestroyChart('surgeryPie');
+
+    chartInstances.surgeryPie = new Chart(ctx, {
+      type: 'doughnut',
+      data: {
+        labels: [`手術病患 (Y): ${opY} 人`, `非手術病患 (N): ${opN} 人`],
+        datasets: [{
+          data: [opY, opN],
+          backgroundColor: ['#006666', '#94a3b8'],
+          borderWidth: 2,
+          borderColor: '#ffffff'
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { position: 'bottom' },
+          tooltip: {
+            callbacks: {
+              label: (ctx) => {
+                const total = opY + opN;
+                const pct = total > 0 ? ((ctx.parsed / total) * 100).toFixed(1) : 0;
+                return ` ${ctx.label} (${pct}%)`;
+              }
+            }
+          }
+        }
+      }
+    });
+  }
+
+  function exportAllChartsData() {
+    const indStore = getStoredIndicators();
+    const rows = [];
+    getAllIndicators().forEach(ind => {
+      const r = { "分類": ind.cat, "指標名稱": ind.name, "品管閾值": ind.benchmark, "單位": ind.unit };
+      for (let m = 1; m <= 12; m++) {
+        const v = indStore[ind.id] && indStore[ind.id][m] ? indStore[ind.id][m].val : '';
+        r[`${m}月`] = v !== '' && v !== null && v !== undefined ? parseFloat(v).toFixed(2) : '';
+      }
+      rows.push(r);
+    });
+
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "圖表分析數據總表");
+    XLSX.writeFile(wb, `義大醫院_${currentUnitName}_全年度指標圖表數據總匯.xlsx`);
+  }
+
+  window.addEventListener('DOMContentLoaded', () => {
+    populateUnitDropdowns();
+  });
+</script>
+</body>
+</html>
