@@ -197,32 +197,76 @@
   </div>
 </header>
 
+<!-- 登入卡片區塊 -->
 <section id="login-section">
   <div class="login-card">
     <h2>義大醫院 護理站管理系統</h2>
     <p>請輸入員編與權限身份進入專區</p>
     
     <div class="form-group">
-      <label for="login-username">登入帳號 / 員工編號</label>
-      <input type="text" id="login-username" class="form-control" placeholder="例如：nurse01 或 hn001" value="護理長" required>
+      <label for="login-username">員工編號 (員編 / 帳號) *</label>
+      <input type="text" id="login-username" class="form-control" placeholder="請輸入員編，例如：80231 或 nurse01" required>
     </div>
 
     <div class="form-group">
       <label for="login-role">登入身份別</label>
       <select id="login-role" class="form-control">
-        <option value="user">一般人員 (病房護理師 - 唯讀模式)</option>
-        <option value="admin" selected>單位管理者 (護理長/督導 - 完整管理權限)</option>
+        <option value="user" selected>一般人員 (病房護理師 - 唯讀模式)</option>
+        <option value="admin">單位管理者 (護理長/督導 - 完整管理權限)</option>
       </select>
     </div>
 
     <div class="form-group">
-      <label for="select-ward">服務護理站 / 單位</label>
-      <select id="select-ward" class="form-control">
-        <option value="" disabled selected>-- 請選擇所屬單位 / 護理站 --</option>
-      </select>
-    </div>
+  <label for="select-ward">選擇服務護理站 / 單位 (全院 36 個單位)</label>
+  <select id="select-ward" class="form-control" required>
+    <option value="" disabled selected>-- 請選擇所屬單位 / 護理站 --</option>
+    <optgroup label="一般病房 (18個單位)">
+      <option value="A056">5A病房 (A056)</option>
+      <option value="A055">5B病房 (A055)</option>
+      <option value="A061">6A病房 (A061)</option>
+      <option value="A062">6B病房 (A062)</option>
+      <option value="A071">7A病房 (A071)</option>
+      <option value="A072">7B病房 (A072)</option>
+      <option value="A081">8A病房 (A081)</option>
+      <option value="A082">8B病房 (A082)</option>
+      <option value="A091">9A病房 (A091)</option>
+      <option value="A092">9B病房 (A092)</option>
+      <option value="A101">10A病房 (A101)</option>
+      <option value="A102">10B病房 (A102)</option>
+      <option value="A111">11A病房 (A111)</option>
+      <option value="A112">11B病房 (A112)</option>
+      <option value="A121">12A病房 (A121)</option>
+      <option value="A122">12B病房 (A122)</option>
+      <option value="A131">13A病房 (A131)</option>
+      <option value="A132">13B病房 (A132)</option>
+    </optgroup>
+    <optgroup label="加護病房 (ICU) (10個單位)">
+      <option value="A031">A031 NSICU</option>
+      <option value="A032">A032 SICU-1</option>
+      <option value="A033">A033 PICU</option>
+      <option value="A035">A035 MICU</option>
+      <option value="A036">A036 CCU</option>
+      <option value="A037">A037 RCC</option>
+      <option value="A038">A038 RICU</option>
+      <option value="A039">A039 SICU-2</option>
+      <option value="A040">A040 燒燙傷中心</option>
+      <option value="A041">A041 NICU</option>
+    </optgroup>
+    <optgroup label="特殊單位 (8個單位)">
+      <option value="A034">麻醉恢復室 (A034)</option>
+      <option value="A052">嬰兒重度床 (A052)</option>
+      <option value="A054">產房 (A054)</option>
+      <option value="2142">美容中心 (2142)</option>
+      <option value="C201">日間照病房 (C201)</option>
+      <option value="OR">手術室 (OR)</option>
+      <option value="T005">住院中心 (T005)</option>
+      <option value="ER">急診室 (ER)</option>
+    </optgroup>
+  </select>
+</div>
 
-    <button class="btn-primary" onclick="handleRoleLogin()">登入單位專區</button>
+    <button class="btn-primary" id="btn-login-submit" onclick="handleRoleLogin()">登入單位專區</button>
+    <div id="login-msg" style="margin-top: 10px; font-size: 0.85rem; text-align: center; display: none;"></div>
   </div>
 </section>
 
@@ -786,19 +830,93 @@
   ];
 
   // 登入與權限處理
-  function handleRoleLogin() {
-    const username = document.getElementById("login-username").value.trim();
-    const roleSelect = document.getElementById("login-role").value;
-    const wardSelect = document.getElementById("select-ward").value;
+  // 全域變數
+let currentStaffId = "";
 
-    if (!username) {
-      alert("請輸入員工編號或帳號！");
-      return;
+async function handleRoleLogin() {
+  const usernameInput = document.getElementById("login-username");
+  const roleSelect = document.getElementById("login-role");
+  const wardSelect = document.getElementById("select-ward");
+  const loginMsg = document.getElementById("login-msg");
+  const btnSubmit = document.getElementById("btn-login-submit");
+
+  const staffId = usernameInput.value.trim();
+  const role = roleSelect.value;
+  const wardId = wardSelect.value;
+
+  if (!staffId) {
+    alert("請輸入員工編號！");
+    usernameInput.focus();
+    return;
+  }
+  if (!wardId) {
+    alert("請選擇服務單位 / 護理站！");
+    wardSelect.focus();
+    return;
+  }
+
+  // 停用按鈕防重複送出
+  btnSubmit.disabled = true;
+  btnSubmit.textContent = "登入驗證中...";
+
+  // 取得單位完整名稱
+  const wardName = wardSelect.options[wardSelect.selectedIndex].text;
+
+  // 1. 同步將員工登入紀錄寫入 Supabase
+  if (supabaseClient) {
+    try {
+      const { error } = await supabaseClient
+        .from('ward_login_logs')
+        .insert([
+          {
+            staff_id: staffId,
+            role: role,
+            unit_id: wardId,
+            unit_name: wardName,
+            user_agent: navigator.userAgent
+          }
+        ]);
+
+      if (error) {
+        console.warn("Supabase 登入紀錄儲存異常 (仍允許本機離線登入):", error.message);
+      } else {
+        console.log(`✅ 員工 [${staffId}] 登入紀錄已成功保存至 Supabase`);
+      }
+    } catch (err) {
+      console.warn("網路異常或 Supabase 未連線:", err);
     }
-    if (!wardSelect) {
-      alert("請選擇服務單位！");
-      return;
-    }
+  }
+
+  // 2. 設定全域變數與介面狀態
+  currentStaffId = staffId;
+  currentUserRole = role;
+  currentUnitId = wardId;
+  currentUnitName = wardName;
+  currentUser = currentUserRole === "admin" ? `護理長 (${staffId})` : `護理師 (${staffId})`;
+
+  // 3. 根據角色套用樣式權限
+  if (currentUserRole === "admin") {
+    document.body.classList.remove("is-user");
+    document.body.classList.add("is-admin");
+  } else {
+    document.body.classList.remove("is-admin");
+    document.body.classList.add("is-user");
+  }
+
+  applyRolePermissions(currentUserRole);
+
+  // 4. 切換頁面顯示
+  document.getElementById("badge-user").textContent = currentUser;
+  document.getElementById("header-unit-switch").value = currentUnitId;
+  document.getElementById("user-badge").style.display = "flex";
+  document.getElementById("login-section").style.display = "none";
+  document.getElementById("main-section").style.display = "block";
+
+  btnSubmit.disabled = false;
+  btnSubmit.textContent = "登入單位專區";
+
+  loadData();
+}
 
     currentUserRole = roleSelect;
     currentUnitId = wardSelect;
@@ -851,35 +969,35 @@
     }
   }
 
-  function populateUnitDropdowns() {
-    const selLogin = document.getElementById('select-ward');
-    const selHeader = document.getElementById('header-unit-switch');
-    selLogin.innerHTML = '<option value="" disabled selected>-- 請選擇所屬單位 / 護理站 --</option>';
-    selHeader.innerHTML = '<option value="" disabled selected>-- 切換單位 --</option>';
+  ffunction populateUnitDropdowns() {
+  const selLogin = document.getElementById('select-ward');
+  const selHeader = document.getElementById('header-unit-switch');
 
-    edahUnits.forEach(grp => {
-      const optGroupLogin = document.createElement('optgroup');
-      optGroupLogin.label = grp.group;
-      const optGroupHeader = document.createElement('optgroup');
-      optGroupHeader.label = grp.group;
+  selLogin.innerHTML = '<option value="" disabled selected>-- 請選擇所屬單位 / 護理站 --</option>';
+  selHeader.innerHTML = '<option value="" disabled selected>-- 切換單位 --</option>';
 
-      grp.units.forEach(u => {
-        const opt1 = document.createElement('option');
-        opt1.value = u.id;
-        opt1.textContent = `${u.id} - ${u.name}`;
-        optGroupLogin.appendChild(opt1);
+  edahUnits.forEach(grp => {
+    const optGroupLogin = document.createElement('optgroup');
+    optGroupLogin.label = grp.group;
+    const optGroupHeader = document.createElement('optgroup');
+    optGroupHeader.label = grp.group;
 
-        const opt2 = document.createElement('option');
-        opt2.value = u.id;
-        opt2.textContent = `${u.id} - ${u.name}`;
-        optGroupHeader.appendChild(opt2);
-      });
+    grp.units.forEach(u => {
+      const opt1 = document.createElement('option');
+      opt1.value = u.id;
+      opt1.textContent = `${u.name} (${u.id})`;
+      optGroupLogin.appendChild(opt1);
 
-      selLogin.appendChild(optGroupLogin);
-      selHeader.appendChild(optGroupHeader);
+      const opt2 = document.createElement('option');
+      opt2.value = u.id;
+      opt2.textContent = `${u.name} (${u.id})`;
+      optGroupHeader.appendChild(opt2);
     });
-  }
 
+    selLogin.appendChild(optGroupLogin);
+    selHeader.appendChild(optGroupHeader);
+  });
+}
   function getStorageKey(key) { return `EDAH_${currentUnitId}_${key}`; }
 
   function switchUnitFromHeader(unitId) {
